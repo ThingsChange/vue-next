@@ -52,6 +52,16 @@ function walk(
   context: TransformContext,
   doNotHoistNode: boolean = false
 ) {
+  // Some transforms, e.g. transformAssetUrls from @vue/compiler-sfc, replaces
+  // static bindings with expressions. These expressions are guaranteed to be
+  // constant so they are still eligible for hoisting, but they are only
+  // available at runtime and therefore cannot be evaluated ahead of time.
+  // This is only a concern for pre-stringification (via transformHoist by
+  // @vue/compiler-dom), but doing it here allows us to perform only one full
+  // walk of the AST and allow `stringifyStatic` to stop walking as soon as its
+  // stringficiation threshold is met.
+  let canStringify = true
+
   const { children } = node
   const originalCount = children.length
   let hoistedCount = 0
@@ -59,15 +69,21 @@ function walk(
   for (let i = 0; i < children.length; i++) {
     const child = children[i]
     // only plain elements & text calls are eligible for hoisting.
+    // 只有简单的元素以及文本是可以被合法提升的
     if (
       child.type === NodeTypes.ELEMENT &&
       child.tagType === ElementTypes.ELEMENT
     ) {
+      // 如果不允许被提升，则赋值 constantType NOT_CONSTANT 不可被提升的标记
+      // 否则调用 getConstantType 获取子节点的静态类型
       const constantType = doNotHoistNode
         ? ConstantTypes.NOT_CONSTANT
         : getConstantType(child, context)
+      // 如果获取到的 constantType 枚举值大于 NOT_CONSTANT
       if (constantType > ConstantTypes.NOT_CONSTANT) {
+        // 根据 constantType 枚举值判断是否可以被字符序列化
         if (constantType >= ConstantTypes.CAN_HOIST) {
+          // 则将子节点的 codegenNode 属性的 patchFlag 标记为 HOISTED 可提升
           ;(child.codegenNode as VNodeCall).patchFlag =
             PatchFlags.HOISTED + (__DEV__ ? ` /* HOISTED */` : ``)
           child.codegenNode = context.hoist(child.codegenNode!)
@@ -76,10 +92,12 @@ function walk(
         }
       } else {
         // node may contain dynamic children, but its props may be eligible for
-        // hoisting.
+        // hoisting. // 节点可能包含动态的子节点，但是它的 props 属性也可能能被合法提升
         const codegenNode = child.codegenNode!
         if (codegenNode.type === NodeTypes.VNODE_CALL) {
           const flag = getPatchFlag(codegenNode)
+          // 如果不存在 flag，或者 flag 是文本类型
+          // 并且该节点 props 的 constantType 值判断出可以被提升
           if (
             (!flag ||
               flag === PatchFlags.NEED_PATCH ||
@@ -87,6 +105,7 @@ function walk(
             getGeneratedPropsConstantType(child, context) >=
               ConstantTypes.CAN_HOIST
           ) {
+            // 获取节点的 props，并在转换器上下文中执行提升操作
             const props = getNodeProps(child)
             if (props) {
               codegenNode.props = context.hoist(props)
@@ -97,6 +116,7 @@ function walk(
           }
         }
       }
+      // 如果节点类型为 TEXT_CALL，则同样进行检查，逻辑与前面一致
     } else if (
       child.type === NodeTypes.TEXT_CALL &&
       getConstantType(child.content, context) >= ConstantTypes.CAN_HOIST

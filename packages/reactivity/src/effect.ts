@@ -19,14 +19,16 @@ type KeyToDepMap = Map<any, Dep>
 const targetMap = new WeakMap<any, KeyToDepMap>()
 
 // The number of effects currently being tracked recursively.
+//表示递归嵌套执行
 let effectTrackDepth = 0
-
+//用于标识依赖收集的状态
 export let trackOpBit = 1
 
 /**
  * The bitwise track markers support at most 30 levels of recursion.
  * This value is chosen to enable modern JS engines to use a SMI on all platforms.
  * When recursion depth is greater, fall back to using a full cleanup.
+ * 表示最大标记的位数
  */
 const maxMarkerBits = 30
 
@@ -80,6 +82,7 @@ export class ReactiveEffect<T = any> {
   }
 
   run() {
+    // 允许在非 active 状态且非调度执行情况，则直接执行原始函数 fn 并返回
     if (!this.active) {
       return this.fn()
     }
@@ -92,12 +95,13 @@ export class ReactiveEffect<T = any> {
       parent = parent.parent
     }
     try {
+      //解决深嵌套场景的effect
       this.parent = activeEffect
       activeEffect = this
       shouldTrack = true
-
+      // 根据递归 || 嵌套 的深度记录位数
       trackOpBit = 1 << ++effectTrackDepth
-
+        // 超过 maxMarkerBits 则 trackOpBit 的计算会超过最大整形的位数，降级为 cleanupEffect
       if (effectTrackDepth <= maxMarkerBits) {
         initDepMarkers(this)
       } else {
@@ -106,9 +110,10 @@ export class ReactiveEffect<T = any> {
       return this.fn()
     } finally {
       if (effectTrackDepth <= maxMarkerBits) {
+          // 完成依赖标记
         finalizeDepMarkers(this)
       }
-
+        // 恢复到上一级
       trackOpBit = 1 << --effectTrackDepth
 
       activeEffect = this.parent
@@ -224,8 +229,11 @@ export function trackEffects(
 ) {
   let shouldTrack = false
   if (effectTrackDepth <= maxMarkerBits) {
+    //此处写的好贱啊，方面名字贱的不行；看着像不是新的依赖，其实是新的、
     if (!newTracked(dep)) {
+      // 标记为新依赖  更新依赖的深度
       dep.n |= trackOpBit // set newly tracked
+      // 如果依赖已经被收集，则不需要再次收集
       shouldTrack = !wasTracked(dep)
     }
   } else {
@@ -234,7 +242,9 @@ export function trackEffects(
   }
 
   if (shouldTrack) {
+    // 收集当前激活的 effect 作为依赖
     dep.add(activeEffect!)
+    // 当前激活的 effect 收集 dep 集合作为依赖
     activeEffect!.deps.push(dep)
     if (__DEV__ && activeEffect!.onTrack) {
       activeEffect!.onTrack(
