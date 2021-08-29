@@ -49,6 +49,7 @@ export const finalizeDepMarkers = (effect: ReactiveEffect) => {
         deps[ptr++] = dep
       }
       // clear bits
+      // 曾经被收集过但不是新的依赖，需要删除
       dep.w &= ~trackOpBit
       dep.n &= ~trackOpBit
     }

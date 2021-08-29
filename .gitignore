@@ -6,3 +6,11 @@ temp
 explorations
 TODOs.md
 *.log
+/.idea/codeStyles/codeStyleConfig.xml
+/.idea/codeStyles/Project.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/encodings.xml
+/.idea/modules.xml
+/.idea/vcs.xml
+/.idea/vue-next.iml
+/.idea/workspace.xml
