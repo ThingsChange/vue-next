@@ -82,7 +82,7 @@ function createConfig(format, output, plugins = []) {
   }
 
   output.exports = 'named'
-  output.sourcemap = !!process.env.SOURCE_MAP
+  output.sourcemap = true || !!process.env.SOURCE_MAP
   output.externalLiveBindings = false
 
   const isProductionBuild =
