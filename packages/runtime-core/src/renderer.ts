@@ -959,6 +959,13 @@ function baseCreateRenderer(
     }
   }
 
+  /*   结构稳定的fragment 有以下的生成途径
+      1. 组件多根template
+      2. 非动态数据v-for模板，e.g. <template v-for="item in 10">
+      稳定fragment能够保证子代节点的位置始终一致，不会出现非稳定fragment新旧节点
+      顺序不同的情况，因此可以在patch前收集好动态子代节点，然后平级diff dynamicChildren
+      就可以，和正常block的diff逻辑是一致的
+*/
   // The fast path for blocks.
   const patchBlockChildren: PatchBlockChildrenFn = (
     oldChildren,
@@ -1113,6 +1120,7 @@ function baseCreateRenderer(
       ) {
         // a stable fragment (template root or <template v-for>) doesn't need to
         // patch children order, but it may contain dynamicChildren.
+        //    稳定片段（template root或<template v-for>）不需要 更新整个block，内部会遍历patch
         patchBlockChildren(
           n1.dynamicChildren,
           dynamicChildren,
@@ -1597,6 +1605,12 @@ function baseCreateRenderer(
     resetTracking()
   }
 
+  // ② 非稳定fragment生成途径:
+  // 1. 动态数据渲染的v-for模板生成的fragment
+  // 2. 手写render函数生成的非确定性fragment
+  // 非稳定fragment中的根级子节点每一个都是block，同时由于动态渲染出的children是
+  // 可能发生顺序变化的，因此非稳定fragment根block不需要收集子代动态内容，只能走
+  // children的全量diff
   const patchChildren: PatchChildrenFn = (
     n1,
     n2,
@@ -1901,10 +1915,13 @@ function baseCreateRenderer(
       // 5.2 loop through old children left to be patched and try to patch
       // matching nodes & remove nodes that are no longer present
       let j
+      //记录c1中已经patched的数量
       let patched = 0
+      // c2 中待处理的节点数目
       const toBePatched = e2 - s2 + 1
       let moved = false
       // used to track whether any node has moved
+      // 已遍历的待处理的 c1 节点在 c2 中对应的索引最大值
       let maxNewIndexSoFar = 0
       // works as Map<newIndex, oldIndex>
       // Note that oldIndex is offset by +1
@@ -1916,6 +1933,7 @@ function baseCreateRenderer(
 
       for (i = s1; i <= e1; i++) {
         const prevChild = c1[i]
+        //  如果已经patch的数量大于新节点中待处理的数量，那么剩下的旧节点都是多余的，卸载即可。
         if (patched >= toBePatched) {
           // all new children have been patched so this can only be a removal
           unmount(prevChild, parentComponent, parentSuspense, true)
@@ -1943,6 +1961,7 @@ function baseCreateRenderer(
           if (newIndex >= maxNewIndexSoFar) {
             maxNewIndexSoFar = newIndex
           } else {
+            /* 说明有节点需要移动   */
             moved = true
           }
           patch(
@@ -1956,7 +1975,7 @@ function baseCreateRenderer(
             slotScopeIds,
             optimized
           )
-          patched++
+          patched++ //记录c1中已经patched的数量
         }
       }
 
@@ -1967,6 +1986,17 @@ function baseCreateRenderer(
         : EMPTY_ARR
       j = increasingNewIndexSequence.length - 1
       // looping backwards so that we can use last patched node as anchor
+      /*
+      *     A B  C D E F  G
+            A B  D C F E  G
+           [3,2,5,4]
+          s2=2  toBePatched=4    nextIndex =5
+          increasingNewIndexSequence=[1,3]
+         E 不用动
+        F挪到E前面
+       C不用动
+      D挪到c前面
+      * */
       for (i = toBePatched - 1; i >= 0; i--) {
         const nextIndex = s2 + i
         const nextChild = c2[nextIndex] as VNode
@@ -2502,6 +2532,24 @@ function getSequence(arr: number[]): number[] {
     if (arrI !== 0) {
       j = result[result.length - 1]
       if (arr[j] < arrI) {
+// 2, 1, 5, 3, 6, 4, 8, 9, 7
+//i       value                           index
+//1步 2
+//2步 1
+//3步 1 5 p[2] =1 result:[1,2]
+//4步 1 3 p[3] =1 result:[1,3] 更新index为3这个位置的元素的时候，前一个比他小的元素index是1
+//5步 1 3 6 p[4] =3 result:[1,3,4]
+//6步 1 3 4 p[5] =3 result:[1,3,5] 更新index为5这个位置的元素的时候，前一个比他小的元素index是3
+//7步 1 3 4 8 p[6] =5 result:[1,3,5,6] 更新index为6这个位置的元素的时候，前一个比他小的元素index是5
+//8步 1 3 4 8 9 p[7] =6 result:[1,3,5,6,7] 更新index为7这个位置的元素的时候，前一个比他小的元素index是6
+//9步 1 3 4 7 9 p[8] =5 result:[1,3,5,8,7]
+// 操作结束后，result中的最后一个元素一定是最大子序列的最后一个元素，
+// 但是前面的值不一定正确，比如第9步的时候7将8替换掉了，已经不满足子序列的条件了
+// 所以需要数组p来记录 数组p中记录了第i次操作的时候，这次将要替换的元素的前一个元素（比它小的那个元素） 的index
+// 最后进行一个回溯的操作
+// 从result的最后一个元素开始，result中最后一个元素7肯定对应着最大子序列的最后一个，
+// 去p数组中找，p数组中对应的这个元素，记录了更新index为7的时候的前一个比他小的元素的index
+// 向前回溯去找
         p[i] = j
         result.push(i)
         continue

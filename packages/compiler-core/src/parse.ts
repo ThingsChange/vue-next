@@ -105,7 +105,9 @@ export function baseParse(
   content: string,
   options: ParserOptions = {}
 ): RootNode {
+  // 创建解析的上下文对象
   const context = createParserContext(content, options)
+  // 生成记录解析过程的游标信息
   const start = getCursor(context)
   return createRoot(
     parseChildren(context, TextModes.DATA, []),
@@ -145,9 +147,12 @@ function parseChildren(
   mode: TextModes,
   ancestors: ElementNode[]
 ): TemplateChildNode[] {
+  // 获取当前节点的父节点
   const parent = last(ancestors)
   const ns = parent ? parent.ns : Namespaces.HTML
+  //  存储待解析的节点
   const nodes: TemplateChildNode[] = []
+  //当标签未闭合时，解析对应节点
 
   while (!isEnd(context, mode, ancestors)) {
     __TEST__ && assert(context.source.length > 0)
@@ -251,6 +256,7 @@ function parseChildren(
     }
   }
 
+  //  处理空白字符，提高输出效率
   // Whitespace handling strategy like v2
   let removedWhitespace = false
   if (mode !== TextModes.RAWTEXT && mode !== TextModes.RCDATA) {
@@ -303,6 +309,7 @@ function parseChildren(
     }
   }
 
+  //去除空白字符，返回解析后的节点数组
   return removedWhitespace ? nodes.filter(Boolean) : nodes
 }
 

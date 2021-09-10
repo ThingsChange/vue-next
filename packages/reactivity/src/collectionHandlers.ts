@@ -36,6 +36,7 @@ function get(
 ) {
   // #1772: readonly(reactive(Map)) should return readonly + reactive version
   // of the value
+  //  这个地方的target不是原始数据，是被代理后的数据也即是Reflect.get(target, key, receiver)中的receiver
   target = (target as any)[ReactiveFlags.RAW]
   const rawTarget = toRaw(target)
   const rawKey = toRaw(key)

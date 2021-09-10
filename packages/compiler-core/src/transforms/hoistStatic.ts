@@ -28,9 +28,10 @@ import {
 export function hoistStatic(root: RootNode, context: TransformContext) {
   walk(
     root,
-    context,
+    context,//转换器上下文
     // Root node is unfortunately non-hoistable due to potential parent
     // fallthrough attributes.
+    //  根节点不能做静态提升
     isSingleElementRoot(root, root.children[0])
   )
 }
@@ -60,6 +61,7 @@ function walk(
   // @vue/compiler-dom), but doing it here allows us to perform only one full
   // walk of the AST and allow `stringifyStatic` to stop walking as soon as its
   // stringficiation threshold is met.
+  //  当前节点是否可以字符串序列化
   let canStringify = true
 
   const { children } = node

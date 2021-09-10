@@ -185,6 +185,7 @@ function createReactiveObject(
   }
   // target is already a Proxy, return it.
   // exception: calling readonly() on a reactive object
+  //  如果target本身被代理过，且不是被Readonly(target),则返回target
   if (
     target[ReactiveFlags.RAW] &&
     !(isReadonly && target[ReactiveFlags.IS_REACTIVE])
@@ -230,6 +231,7 @@ export function toRaw<T>(observed: T): T {
 }
 
 export function markRaw<T extends object>(value: T): T {
+  //  markRaw - 添加不可转为响应式数据的标记
   def(value, ReactiveFlags.SKIP, true)
   return value
 }
