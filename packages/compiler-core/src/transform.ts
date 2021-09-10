@@ -315,8 +315,11 @@ export function createTransformContext(
 }
 
 export function transform(root: RootNode, options: TransformOptions) {
+  // 创建转换上下文
   const context = createTransformContext(root, options)
+  //  遍历所有节点，进行转换
   traverseNode(root, context)
+  //  如果编译选项打开了hoistStatic开关，则进行静态提升
   if (options.hoistStatic) {
     hoistStatic(root, context)
   }

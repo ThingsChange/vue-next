@@ -58,6 +58,9 @@ export function getBaseTransformPreset(
 
 // we name it `baseCompile` so that higher order compilers like
 // @vue/compiler-dom can export `compile` while re-exporting everything else.
+//为啥叫baseCompile 呢？因为 compile-core 是编译的核心模块，接受外部的参数来按照规则完成编译
+//而 compile-dom 是专门处理浏览器场景下的编译，在这个模块下导出的 compile 函数是入口文件真正接收的编译函数。
+//而 compile-dom 中的 compile 函数相对 baseCompile 也是更高阶的一个编译器。例如当 Vue 在 weex 在 iOS 或者 Android 这些 Native App 中工作时，compile-dom 可能会被相关的移动端编译库来取代。
 export function baseCompile(
   template: string | RootNode,
   options: CompilerOptions = {}

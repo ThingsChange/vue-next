@@ -19,7 +19,7 @@ type KeyToDepMap = Map<any, Dep>
 const targetMap = new WeakMap<any, KeyToDepMap>()
 
 // The number of effects currently being tracked recursively.
-//表示递归嵌套执行
+//表示递归嵌套执行  effect 函数的深度
 let effectTrackDepth = 0
 //用于标识依赖收集的状态
 export let trackOpBit = 1
@@ -99,6 +99,14 @@ export class ReactiveEffect<T = any> {
       this.parent = activeEffect
       activeEffect = this
       shouldTrack = true
+      /*
+      *      //  此处为什么要先放进去呢？因为你不知道下面 的fn执行过程中会不会继续有需要收集的响应式数据
+        //  例如你有一个模板，包含一个计算属性；计算属性会先执行，但是因为计算属性是lazy=true,所以并不会取值；
+        //   而当模板渲染的时候， 此处是componentEffect,而你在模板解析中还有计算属性，那就先把componentEffect存起来，
+        //   然后呢，去执行当前的计算属性，把当前的计算属性effect设置为当前activeEffect，执行并设置值，然后从effectStack中清除
+        // 这个计算属性的effect，把倒数第一个设置为当前的activeEffect,也就是刚才的那个componentEffect
+        //   计算属性中或许你又依赖了其他的计算属性，无线套娃，所以呢存起来，一步一步来
+      * */
       // 根据递归 || 嵌套 的深度记录位数
       trackOpBit = 1 << ++effectTrackDepth
         // 超过 maxMarkerBits 则 trackOpBit 的计算会超过最大整形的位数，降级为 cleanupEffect
@@ -110,7 +118,7 @@ export class ReactiveEffect<T = any> {
       return this.fn()
     } finally {
       if (effectTrackDepth <= maxMarkerBits) {
-          // 完成依赖标记
+          //执行完 effect 函数还会移除掉已被收集但是新的一轮依赖收集中没有被收集的依赖
         finalizeDepMarkers(this)
       }
         // 恢复到上一级

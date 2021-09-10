@@ -48,6 +48,11 @@ const arrayInstrumentations = /*#__PURE__*/ createArrayInstrumentations()
 
 function createArrayInstrumentations() {
   const instrumentations: Record<string, Function> = {}
+  /*
+     方法中的 第一个参数 this 入参只是作为一个形式上的参数，供 TypeScript 做静态检查时使用，编译后并不会生成实际的入参。
+      而args  为啥是个数组呢，因为这三个方法都接受第二个参数，查询的起始位置，比如说a =【1,2,3,4】从 a.indexof(2,2)
+      a.unshift(1); 此时为true；
+  * */
   // instrument identity-sensitive Array methods to account for possible reactive
   // values
   ;(['includes', 'indexOf', 'lastIndexOf'] as const).forEach(key => {
@@ -70,6 +75,15 @@ function createArrayInstrumentations() {
   // which leads to infinite loops in some cases (#2137)
   ;(['push', 'pop', 'shift', 'unshift', 'splice'] as const).forEach(key => {
     instrumentations[key] = function (this: unknown[], ...args: unknown[]) {
+      /*
+      *  此处为啥先暂停呢？
+          比如push 时，a=[],a.push(1);
+          取push这个属性的时候本身不需要track
+         那push操作进来的新值，是怎么变成响应式的呢？
+        是执行了这个操作    a[0]=1;走了proxy的setter,出发了trigger
+        其实push的内部逻辑就是先给下标赋值，然后设置length，触发了两次set。不过还有个现象是，虽然push带来的length操作会触发两次set，
+        但走到 length 逻辑时，获取老的 length 也已经是新的值了，所以由于value === oldValue，实际只会走到一次trigger
+      * */
       pauseTracking()
       const res = (toRaw(this) as any)[key].apply(this, args)
       resetTracking()
@@ -171,10 +185,12 @@ function createSetter(shallow = false) {
         ? Number(key) < target.length
         : hasOwn(target, key)
     const result = Reflect.set(target, key, value, receiver)
+    // 如果是原始数据原型链上的数据操作，不做任何触发监听函数的行为。
     // don't trigger if target is something up in the prototype chain of original
     if (target === toRaw(receiver)) {
       if (!hadKey) {
         trigger(target, TriggerOpTypes.ADD, key, value)
+        //数组的push操作并不会触发两次trigger的原因在此
       } else if (hasChanged(value, oldValue)) {
         trigger(target, TriggerOpTypes.SET, key, value, oldValue)
       }

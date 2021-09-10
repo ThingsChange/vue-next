@@ -95,16 +95,19 @@ export const TeleportImpl = {
 
     if (n1 == null) {
       // insert anchors in the main view
+      // 创建注释节点
       const placeholder = (n2.el = __DEV__
         ? createComment('teleport start')
         : createText(''))
       const mainAnchor = (n2.anchor = __DEV__
         ? createComment('teleport end')
         : createText(''))
+      // 插入注释节点 ,插入此时 teleport 组件在页面中的对应位置，即插入到 teleport 的父节点 container 中：
       insert(placeholder, container, anchor)
       insert(mainAnchor, container, anchor)
       const target = (n2.target = resolveTarget(n2.props, querySelector))
       const targetAnchor = (n2.targetAnchor = createText(''))
+      //  teleport 对应的target的Dom存在，则插入一个空的文本节点，也可以称为占位节点
       if (target) {
         insert(targetAnchor, target)
         // #2652 we could be teleporting from a non-SVG tree into an SVG tree
@@ -175,10 +178,13 @@ export const TeleportImpl = {
         )
       }
 
+      //新的节点不需要移动
       if (disabled) {
+        //  原先节点移动到target的情况
         if (!wasDisabled) {
           // enabled -> disabled
           // move into main container
+          //  把原先的节点从target移动到main container
           moveTeleport(
             n2,
             container,
@@ -188,7 +194,7 @@ export const TeleportImpl = {
           )
         }
       } else {
-        // target changed
+        // target changed   新的节点和旧的挂载节点不一致
         if ((n2.props && n2.props.to) !== (n1.props && n1.props.to)) {
           const nextTarget = (n2.target = resolveTarget(
             n2.props,
@@ -209,7 +215,7 @@ export const TeleportImpl = {
               `(${typeof target})`
             )
           }
-        } else if (wasDisabled) {
+        } else if (wasDisabled) { //  旧的挂载节点在main container的情况
           // disabled -> enabled
           // move into teleport target
           moveTeleport(
