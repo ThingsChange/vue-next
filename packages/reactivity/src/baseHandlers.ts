@@ -123,7 +123,7 @@ function createGetter(isReadonly = false, shallow = false) {
     }
 
     const res = Reflect.get(target, key, receiver)
-
+    //如果是Symbol 类型，那么就看是否是 ESM规范中带的那13个Symbol自有属性 ：是否是__proto__,__v_isRef,__isVue 这些不需要追踪的属性
     if (isSymbol(key) ? builtInSymbols.has(key) : isNonTrackableKeys(key)) {
       return res
     }

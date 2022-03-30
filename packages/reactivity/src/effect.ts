@@ -19,7 +19,7 @@ type KeyToDepMap = Map<any, Dep>
 const targetMap = new WeakMap<any, KeyToDepMap>()
 
 // The number of effects currently being tracked recursively.
-//表示递归嵌套执行  effect 函数的深度
+//表示递归嵌套执行  effect 函数的深度，最大深度为30取决于位运算，带符号位运算超过30则溢出
 let effectTrackDepth = 0
 //用于标识依赖收集的状态
 export let trackOpBit = 1
@@ -51,7 +51,9 @@ export let activeEffect: ReactiveEffect | undefined
 
 export const ITERATE_KEY = Symbol(__DEV__ ? 'iterate' : '')
 export const MAP_KEY_ITERATE_KEY = Symbol(__DEV__ ? 'Map key iterate' : '')
-
+/*
+* 副作用对象
+* */
 export class ReactiveEffect<T = any> {
   active = true
   deps: Dep[] = []
@@ -95,7 +97,8 @@ export class ReactiveEffect<T = any> {
       parent = parent.parent
     }
     try {
-      //解决深嵌套场景的effect
+      //解决深嵌套场景的effect,保存上一个reactiveEffect
+      //把当前effect的父级指向【目前正在执行中的】外层，然后将activeEffect指向【即将要执行的】内层
       this.parent = activeEffect
       activeEffect = this
       shouldTrack = true
@@ -107,18 +110,21 @@ export class ReactiveEffect<T = any> {
         // 这个计算属性的effect，把倒数第一个设置为当前的activeEffect,也就是刚才的那个componentEffect
         //   计算属性中或许你又依赖了其他的计算属性，无线套娃，所以呢存起来，一步一步来
       * */
-      // 根据递归 || 嵌套 的深度记录位数
+      // 根据递归 || 嵌套 的深度记录位数，因为执行的是内层，所以在当前层次effectTrackDepth上在加一层，，即左移一位
       trackOpBit = 1 << ++effectTrackDepth
+        //执行副作用函数前，给 ReactiveEffect 依赖的响应式变量，w标识位,wastracked
         // 超过 maxMarkerBits 则 trackOpBit 的计算会超过最大整形的位数，降级为 cleanupEffect
       if (effectTrackDepth <= maxMarkerBits) {
+        //标记所有的的dep为was
         initDepMarkers(this)
       } else {
+        //降级方案，删除所有依赖，重新收集依赖
         cleanupEffect(this)
       }
-      return this.fn()
+      return this.fn()//执行传入的副作用函数，会访问到响应式数据，就会触发他们的getter，进而执行track函数收集依赖，给新收集的依赖打上标记.n
     } finally {
       if (effectTrackDepth <= maxMarkerBits) {
-          //执行完 effect 函数还会移除掉已被收集但是新的一轮依赖收集中没有被收集的依赖
+          //执行完 副作用函数还会移除掉历史被收集但是新的一轮依赖收集中没有被收集的依赖，即.w 有值，.n无值的会被删除
         finalizeDepMarkers(this)
       }
         // 恢复到上一级
@@ -140,7 +146,7 @@ export class ReactiveEffect<T = any> {
     }
   }
 }
-
+//双向删除 ReactiveEffect 副作用对象的所有依赖
 function cleanupEffect(effect: ReactiveEffect) {
   const { deps } = effect
   if (deps.length) {
@@ -168,7 +174,7 @@ export interface ReactiveEffectRunner<T = any> {
   (): T
   effect: ReactiveEffect
 }
-
+//传入effect的为副作用函数
 export function effect<T = any>(
   fn: () => T,
   options?: ReactiveEffectOptions
@@ -235,9 +241,11 @@ export function trackEffects(
   dep: Dep,
   debuggerEventExtraInfo?: DebuggerEventExtraInfo
 ) {
+  debugger
   let shouldTrack = false
   if (effectTrackDepth <= maxMarkerBits) {
     //此处写的好贱啊，方面名字贱的不行；看着像不是新的依赖，其实是新的、
+    //如果不是重新收集的
     if (!newTracked(dep)) {
       // 标记为新依赖  更新依赖的深度
       dep.n |= trackOpBit // set newly tracked

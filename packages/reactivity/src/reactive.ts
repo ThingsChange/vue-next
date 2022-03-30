@@ -193,7 +193,7 @@ function createReactiveObject(
   }
   // target is already a Proxy, return it.
   // exception: calling readonly() on a reactive object
-  //  如果target本身被代理过，且不是被Readonly(target),则返回target
+  //  如果target本身被代理过，并且此次调用使用readOnly（target）来生成只读的响应式数据
   if (
     target[ReactiveFlags.RAW] &&
     !(isReadonly && target[ReactiveFlags.IS_REACTIVE])
