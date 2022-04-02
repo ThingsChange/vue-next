@@ -167,11 +167,14 @@ function createSetter(shallow = false) {
     if (isReadonly(oldValue) && isRef(oldValue) && !isRef(value)) {
       return false
     }
+    //非浅层   且  新值是 非只读的响应式   即使深层次监听
     if (!shallow && !isReadonly(value)) {
+      //如果新值不是浅层,那么先得到各自真实的value值
       if (!isShallow(value)) {
         value = toRaw(value)
         oldValue = toRaw(oldValue)
       }
+      //对象不是数组 ，并且旧值是Ref儿新值不是Ref，让新值赋值给ref.value，ref决定trigger
       if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
         oldValue.value = value
         return true
@@ -184,13 +187,14 @@ function createSetter(shallow = false) {
       isArray(target) && isIntegerKey(key)
         ? Number(key) < target.length
         : hasOwn(target, key)
+    //赋值操作
     const result = Reflect.set(target, key, value, receiver)
     // 如果是原始数据原型链上的数据操作，不做任何触发监听函数的行为。
     // don't trigger if target is something up in the prototype chain of original
     if (target === toRaw(receiver)) {
       if (!hadKey) {
         trigger(target, TriggerOpTypes.ADD, key, value)
-        //数组的push操作并不会触发两次trigger的原因在此
+        //数组的push操作并不会触发两次trigger的原因在此，先下标赋值，然后leng设置的时候，此时数组的length 已经改变成新的程度，故相等
       } else if (hasChanged(value, oldValue)) {
         trigger(target, TriggerOpTypes.SET, key, value, oldValue)
       }

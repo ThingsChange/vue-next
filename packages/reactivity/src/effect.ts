@@ -55,6 +55,7 @@ export const MAP_KEY_ITERATE_KEY = Symbol(__DEV__ ? 'Map key iterate' : '')
 * 副作用对象
 * */
 export class ReactiveEffect<T = any> {
+  //侦听是否可用，比如停止了？？
   active = true
   deps: Dep[] = []
   parent: ReactiveEffect | undefined = undefined
@@ -283,17 +284,19 @@ export function trigger(
   oldValue?: unknown,
   oldTarget?: Map<unknown, unknown> | Set<unknown>
 ) {
-  const depsMap = targetMap.get(target)
+  const depsMap = targetMap.get(target)//查找该对象对应的KeyToDepMap<any,dep>
   if (!depsMap) {
     // never been tracked
     return
   }
-
+  //声明一个最后需要处理的集合deps，依次收集    清除操作||数组修改长度||设置、新增、删除key值 ；然后根据类型，可能会对迭代器作为key值对应的dep监听也收集起来
   let deps: (Dep | undefined)[] = []
+  //如果是清空操作，那么收集所有的依赖项的集合
   if (type === TriggerOpTypes.CLEAR) {
     // collection being cleared
     // trigger all effects for target
     deps = [...depsMap.values()]
+  //  如果是key是length且原对象是数组，找到key是length 类型的或者下标在新的下标key位置及其后面的元素的dep  收集起来（注意，循环中key可以是length ，可以是indexof，也可以是数组的下标）
   } else if (key === 'length' && isArray(target)) {
     depsMap.forEach((dep, key) => {
       if (key === 'length' || key >= (newValue as number)) {
@@ -302,10 +305,12 @@ export function trigger(
     })
   } else {
     // schedule runs for SET | ADD | DELETE
+    //如果key值存在，那么应该是设置，新增，或者删除操作，我们只需要收集这个key值对应的dep的
     if (key !== void 0) {
       deps.push(depsMap.get(key))
     }
 
+    //因为新增，删减，或者设置新值，都会对遍历相关的监听产生影响，所以要把这些dep收集起来，e.g.  a=[1,2,3]  let b= Reflect.ownKeys(a)  c=new Set([1,2,3])  c.size()'
     // also run for iteration key on ADD | DELETE | Map.SET
     switch (type) {
       case TriggerOpTypes.ADD:
@@ -315,7 +320,7 @@ export function trigger(
             deps.push(depsMap.get(MAP_KEY_ITERATE_KEY))
           }
         } else if (isIntegerKey(key)) {
-          // new index added to array -> length changes
+          // new index added to array -> length changes //此处跟前面的length会不会重复收集；哦数组不会，因为数组传递过来的的key是准备中的值，而不是length，上面 并不会收集
           deps.push(depsMap.get('length'))
         }
         break
@@ -338,9 +343,10 @@ export function trigger(
   const eventInfo = __DEV__
     ? { target, type, key, newValue, oldValue, oldTarget }
     : undefined
-
+  //一个人就必要麻烦别人了，就不封装了，直接执行函数即可。但是呢，明明可以放到多个里来处理，为啥不放呢？不理解
   if (deps.length === 1) {
-    if (deps[0]) {
+    if (deps[0])
+    {
       if (__DEV__) {
         triggerEffects(deps[0], eventInfo)
       } else {
@@ -367,15 +373,18 @@ export function triggerEffects(
   debuggerEventExtraInfo?: DebuggerEventExtraInfo
 ) {
   // spread into array for stabilization
+  // 循环遍历 dep，去取每个依赖的副作用对象 ReactiveEffect
   for (const effect of isArray(dep) ? dep : [...dep]) {
+    // 默认不允许递归，即当前 effect 副作用函数，如果递归触发当前 effect，会被忽略
     if (effect !== activeEffect || effect.allowRecurse) {
       if (__DEV__ && effect.onTrigger) {
         effect.onTrigger(extend({ effect }, debuggerEventExtraInfo))
       }
+      // effect.scheduler可以先不管，ref 和 reactive 都没有
       if (effect.scheduler) {
         effect.scheduler()
       } else {
-        effect.run()
+        effect.run()  // 执行 effect 的副作用函数
       }
     }
   }

@@ -169,7 +169,11 @@ export function watch<T = any, Immediate extends Readonly<boolean> = false>(
   }
   return doWatch(source as any, cb, options)
 }
-
+/*
+* @params source
+* @params cb  仅当watch时，才有cb回调函数  （有三个参数，新，旧，注册清除过期回调函数）
+* @params options ：watch配置，有immediate，deep ，flush
+* */
 function doWatch(
   source: WatchSource | WatchSource[] | WatchEffect | object,
   cb: WatchCallback | null,
@@ -203,13 +207,20 @@ function doWatch(
   let getter: () => any
   let forceTrigger = false
   let isMultiSource = false
-
+  //?蓝色高亮
+  //*绿色高亮
+  //!红色高亮
+  // todo 橙色高亮
+  //  //灰色带删除线的注释
+  //!标准化source，组装成为getter函数，getter函数是最终被侦听的函数，即函数里面用到的响应式变量的改变，都会触发执行scheduler函数
   if (isRef(source)) {
-    getter = () => source.value
+    getter = () => source.value //执行getter  就会读取ref.value  从而track收集依赖
     forceTrigger = isShallow(source)
+  //  reactive 对象需要深度遍历
   } else if (isReactive(source)) {
     getter = () => source
     deep = true
+  //  侦听多个源，source为数组，标记当前侦听为多数据源isMultiSource = true
   } else if (isArray(source)) {
     isMultiSource = true
     forceTrigger = source.some(isReactive)
@@ -228,14 +239,17 @@ function doWatch(
   } else if (isFunction(source)) {
     if (cb) {
       // getter with cb
+      //*直接用错误处理函数包一层，getter函数实际上就是直接运行source函数，做了一些错误信息的统一处理，有更好的错误提示
       getter = () =>
         callWithErrorHandling(source, instance, ErrorCodes.WATCH_GETTER)
     } else {
       // no cb -> simple effect
+      //没有callback 还是直接运行source函数
       getter = () => {
         if (instance && instance.isUnmounted) {
           return
         }
+        //* 在真正执行回调之前 执行清理过期的回调函数
         if (cleanup) {
           cleanup()
         }
@@ -248,6 +262,7 @@ function doWatch(
       }
     }
   } else {
+    //兜底处理，你传入的source错啦!
     getter = NOOP
     __DEV__ && warnInvalidSource(source)
   }
@@ -273,6 +288,8 @@ function doWatch(
   }
 
   let cleanup: () => void
+  //注册清除副作用函数，副作用函数可能存在异步超时，无法确保CB的执行顺序，有可能执行顺序错乱，
+  // 而cleanUp就是为了确保你的执行顺序是按照触发trigger的顺序来的，把历史的作废，执行最后的
   let onCleanup: OnCleanup = (fn: () => void) => {
     cleanup = effect.onStop = () => {
       callWithErrorHandling(fn, instance, ErrorCodes.WATCH_CLEANUP)
@@ -296,13 +313,17 @@ function doWatch(
     return NOOP
   }
 
+  //组装JOB函数，判断侦听的值是否有变化， 有变化则执行getter函数和cb回调
   let oldValue = isMultiSource ? [] : INITIAL_WATCHER_VALUE
   const job: SchedulerJob = () => {
+    //如果侦听已经停止，直接return
     if (!effect.active) {
       return
     }
     if (cb) {
-      // watch(source, cb)
+      // watch(source, cb) 走这个分支
+      //执行getter得到新值，新值如果发生变化，那么调用cb
+      //!watch分支  1、值有变化 2   强制更新，3  deep设置深度监听
       const newValue = effect.run()
       if (
         deep ||
@@ -317,6 +338,7 @@ function doWatch(
           isCompatEnabled(DeprecationTypes.WATCH_ARRAY, instance))
       ) {
         // cleanup before running cb again
+        //!清除过期回调
         if (cleanup) {
           cleanup()
         }
@@ -336,26 +358,36 @@ function doWatch(
 
   // important: mark the job as a watcher callback so that scheduler knows
   // it is allowed to self-trigger (#1727)
+  //如果有cb 则允许job递归
+  // e.g. cb导致getter又被改变，trigger，这时候应该允许继续将cb加入执行队列
   job.allowRecurse = !!cb
 
+  //组装scheduler函数，scheduler负责在合适的时机调用job函数（根据options.flush,即副作用刷新的时机），默认在组件更新前执行
+  //当getter中侦听的响应式变量发生变化的时候，就会执行scheduler 函数
   let scheduler: EffectScheduler
+  //同步调用job，官方不建议同步使用
+  //  响应式变量改变，同步执行，此时watch的cb回调还未执行，DOM也没有更新，低效。因为没有延期执行，所以失去了防抖效果，如果a = 1;a=2;a=1;呢么也没法判断最终是否发生了变化，重复执行
   if (flush === 'sync') {
     scheduler = job as any // the scheduler function gets called directly
+  //异步调用job,在组件DOM更新之后，此时拿到的是更新后的DOM对象
   } else if (flush === 'post') {
     scheduler = () => queuePostRenderEffect(job, instance && instance.suspense)
   } else {
     // default: 'pre'
     scheduler = () => {
+      //异步调用job,在组件DOM更新前，此时拿到的DOM是更新前的DOM对象，监听的对象拿到的是新值
       if (!instance || instance.isMounted) {
         queuePreFlushCb(job)
       } else {
         // with 'pre' option, the first call must happen before
         // the component is mounted so it is called synchronously.
+        //组件为挂载前，watch CB同步调用
         job()
       }
     }
   }
 
+  //开启侦听
   const effect = new ReactiveEffect(getter, scheduler)
 
   if (__DEV__) {
@@ -379,6 +411,7 @@ function doWatch(
     effect.run()
   }
 
+  //返回侦听函数  跟vue的结构一模一样
   return () => {
     effect.stop()
     if (instance && instance.scope) {
@@ -429,6 +462,10 @@ export function createPathGetter(ctx: any, path: string) {
   }
 }
 
+/*
+* 深度遍历对象，只是访问响应式变量，不做任何处理
+* 访问就会触发响应式变量的 getter，从而触发依赖收集
+* */
 export function traverse(value: unknown, seen?: Set<unknown>) {
   if (!isObject(value) || (value as any)[ReactiveFlags.SKIP]) {
     return value

@@ -34,7 +34,16 @@ export class ComputedRefImpl<T> {
 
   public _dirty = true
   public _cacheable: boolean
-
+/*
+* 1、响应式数据
+* const data = reactive({ count: 0 })
+* 2.计算属性
+*const plusOne = computed(() => data.count + 1)
+* 3.依赖收集
+*ler printCountPlus = effect(()=>console.log(plusOne.value))
+* 4.触发上面的effect重新执行
+* data.count++
+* */
   constructor(
     getter: ComputedGetter<T>,
     private readonly _setter: ComputedSetter<T>,
@@ -42,9 +51,11 @@ export class ComputedRefImpl<T> {
     isSSR: boolean
   ) {
     this.effect = new ReactiveEffect(getter, () => {
+      //用到计算属性的地方，比如render或者上面printCountPlus ，那么该副作用对象 作为计算属性 的依赖项被他收集。
+      // 而该函数被执行，是因为该副作用对象依赖于他的get函数中的依赖项 ，依赖项（data.count）发生变化， 触发更新遍历依赖项（data.count）的deps执行的effect.run时，把dirty设置成true
       if (!this._dirty) {
         this._dirty = true
-        triggerRefValue(this)
+        triggerRefValue(this) //此处通知r该计算属性的dps 如 ender的effect 执行，执行的时候重新收集依赖属性，就会发现此时dirty为true
       }
     })
     this.effect.computed = this
@@ -56,8 +67,10 @@ export class ComputedRefImpl<T> {
     // the computed ref may get wrapped by other proxies e.g. readonly() #3376
     const self = toRaw(this)
     trackRefValue(self)
+    //  脏值或者是SSR渲染即不做缓存的时候
     if (self._dirty || !self._cacheable) {
       self._dirty = false
+      //getter 函数重新被计算
       self._value = self.effect.run()!
     }
     return self._value
