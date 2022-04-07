@@ -34,11 +34,12 @@
         c:3
       })
       let len = computed(()=>{
-        return state.c+state.a+state.b
+        //deps [ effect,errfec.....effect].length =6        key :arr  ;   .length;   .reduce.   及下标 0   1  2
+        return state.arr.reduce((vv,v)=>vv+v,0)
       })
       function  addOneNum(){
-        // state.arr.push(0)
-        state.a++;
+        state.arr.push(0)
+        // state.a++;
         /*
         * 1.state.a 自增  触发依赖他的副作用对象  len    computed.effect.schduler
         * 2.设置computed设置为脏值，并触发计算属性的副作用对象执行（此处是render）

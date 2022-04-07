@@ -242,7 +242,6 @@ export function trackEffects(
   dep: Dep,
   debuggerEventExtraInfo?: DebuggerEventExtraInfo
 ) {
-  debugger
   let shouldTrack = false
   if (effectTrackDepth <= maxMarkerBits) {
     //此处写的好贱啊，方面名字贱的不行；看着像不是新的依赖，其实是新的、

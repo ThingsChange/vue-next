@@ -23,7 +23,7 @@ function get(
 ) {
   // #1772: readonly(reactive(Map)) should return readonly + reactive version
   // of the value
-  //  这个地方的target不是原始数据，是被代理后的数据也即是Reflect.get(target, key, receiver)中的receiver
+  //  这个地方的target不是原始数据，是被代理后的数据也即是Reflect.get(target, key, receiver)中的receiveri
   target = (target as any)[ReactiveFlags.RAW]
   const rawTarget = toRaw(target)
   const rawKey = toRaw(key)
@@ -37,6 +37,7 @@ function get(
     return wrap(target.get(key))
   } else if (has.call(rawTarget, rawKey)) {
     return wrap(target.get(rawKey))
+  //  多层嵌套的响应式，比如readonly(reactive(Map))
   } else if (target !== rawTarget) {
     // #3602 readonly(reactive(Map))
     // ensure that the nested reactive `Map` can do tracking for itself
