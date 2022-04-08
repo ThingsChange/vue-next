@@ -55,6 +55,7 @@ let currentPreFlushParentJob: SchedulerJob | null = null
 const RECURSION_LIMIT = 100
 type CountMap = Map<SchedulerJob, number>
 
+//同vue2.x   如果nextTick又回调函数，这添加到微任务执行队列  如果没有，这返回一个 已确认的promise
 export function nextTick<T = void>(
   this: T,
   fn?: (this: T) => void
@@ -67,6 +68,7 @@ export function nextTick<T = void>(
 // Use binary-search to find a suitable position in the queue,
 // so that the queue maintains the increasing order of job's id,
 // which can prevent the job from being skipped and also can avoid repeated patching.
+//ID排序：使用二分法在队列中找到合适的位置，保持队列按照ID自增以防止被跳过或者重复执行某个回调
 function findInsertionIndex(id: number) {
   // the start index should be `flushIndex + 1`
   let start = flushIndex + 1
@@ -111,14 +113,16 @@ function queueFlush() {
     currentFlushPromise = resolvedPromise.then(flushJobs)
   }
 }
-
+//!队列JOB能被删除   删除时为了提升性能；  删除场景发生在组件更新时，删除的JOB就不在队列中了，能够被再次加入到队列中；
+// 如果子组件已经在队列中排序了，父组件更新的时候会递归更新子组件，所以子组件更新如果还没呗执行，那么就移除掉，因为父组件先更新，会带动子组件更新
+//这样就避免了统一子组件被重复更新
 export function invalidateJob(job: SchedulerJob) {
   const i = queue.indexOf(job)
   if (i > flushIndex) {
     queue.splice(i, 1)
   }
 }
-
+//给回调函数排队
 function queueCb(
   cb: SchedulerJobs,
   activeQueue: SchedulerJob[] | null,
@@ -155,6 +159,7 @@ export function flushPreFlushCbs(
 ) {
   if (pendingPreFlushCbs.length) {
     currentPreFlushParentJob = parentJob
+    //对将要执行的pre类型的回调函数进行去重处理
     activePreFlushCbs = [...new Set(pendingPreFlushCbs)]
     pendingPreFlushCbs.length = 0
     if (__DEV__) {
@@ -171,16 +176,20 @@ export function flushPreFlushCbs(
       ) {
         continue
       }
+      //拎出来执行
       activePreFlushCbs[preFlushIndex]()
     }
+    //清空要执行的pre回调，归位pre回调执行的下标，清空当前pre回调队列的父JOB
     activePreFlushCbs = null
     preFlushIndex = 0
     currentPreFlushParentJob = null
     // recursively flush until it drains
+    //重复执行，直至pre回调队列为空。因为在你执行的过程中可能会有插入的Pre回调函数
     flushPreFlushCbs(seen, parentJob)
   }
 }
 
+//! 除了组件 updated 生命周期外，mounted、activated、deactivated、unmounted、watchPostEffect、模板引用 ref 等，需要在 DOM 更新之后执行的功能，都需要使用到 Post 队列
 export function flushPostFlushCbs(seen?: CountMap) {
   if (pendingPostFlushCbs.length) {
     const deduped = [...new Set(pendingPostFlushCbs)]
@@ -196,7 +205,7 @@ export function flushPostFlushCbs(seen?: CountMap) {
     if (__DEV__) {
       seen = seen || new Map()
     }
-
+    // !具有优先级  :因为需要尽快的更新模板索引 ref，很可能在 Post 队列中的 Job，有可能会使用到 比如一个   v-if   v-else  运用了相同的  ref
     activePostFlushCbs.sort((a, b) => getId(a) - getId(b))
 
     for (
@@ -220,6 +229,16 @@ export function flushPostFlushCbs(seen?: CountMap) {
 const getId = (job: SchedulerJob): number =>
   job.id == null ? Infinity : job.id
 
+/*
+*                  组件数据更新                 用户操作等原因
+*                  组件数据更新                 引起的组件数据更新
+*                         ↓
+*   PreJOB               preJOB               pre队列，watch专用队列
+*   组件更新Job0   组件更新JoB1     带有id的组件异步更新队列      //! 异步更新队列之前，需要确保数据已经更新到最新，所以比如依赖的watch了什么的的 在preJOB中  算明白
+* Post Job            Post Job              Post队列，运行后置逻辑
+*
+* */
+
 function flushJobs(seen?: CountMap) {
   isFlushPending = false
   isFlushing = true
@@ -236,6 +255,8 @@ function flushJobs(seen?: CountMap) {
   //    priority number)
   // 2. If a component is unmounted during a parent component's update,
   //    its update can be skipped.
+  //1、父组件更细会可能会导致子组件的更新，所以先更新父组件，避免重复更新子组件。所以要进行JOB排序
+  //2、如果在啊父组件更新的时候，子组件并没有挂载（被卸载），那么子组件的更新 可以被忽略
   queue.sort((a, b) => getId(a) - getId(b))
 
   // conditional usage of checkRecursiveUpdate must be determined out of
@@ -250,6 +271,10 @@ function flushJobs(seen?: CountMap) {
   try {
     for (flushIndex = 0; flushIndex < queue.length; flushIndex++) {
       const job = queue[flushIndex]
+      //!队列存在，并且队列并未失效 详见  unmountComponent函数
+      //   <div>Father {{ count }}</div>
+      //   <Children v-if="(count+1)%2" :count='count' @add="onAdd" />
+      //什么情况下会失效呢？发生在组件卸载时，但是呢，失效的job仍然存在于队列中，失效的job 再次加入队列中时，由于job 已经存在，会被去重。标记为失效，无法再次执行。
       if (job && job.active !== false) {
         if (__DEV__ && check(job)) {
           continue
@@ -273,6 +298,7 @@ function flushJobs(seen?: CountMap) {
       pendingPreFlushCbs.length ||
       pendingPostFlushCbs.length
     ) {
+      //有任何的回调函数，就接着递归呗
       flushJobs(seen)
     }
   }
@@ -301,3 +327,14 @@ function checkRecursiveUpdates(seen: CountMap, fn: SchedulerJob) {
     }
   }
 }
+
+/*
+*
+*
+* Pre 队列                 异步更新队列                                            Post 队列
+* Job 去重                Job 去重                                                  Job 去重
+* 先进先出              允许插队，按 id 从小到大执行              允许插队，按 id 从小到大执行
+* 不需要删除           Job可以删除 Job                                 不需要删除 Job
+* 不需要失效 Job    Job 会失效                                         不需要失效 Job
+* 允许递                  归允许递归                                         允许递归
+* */
