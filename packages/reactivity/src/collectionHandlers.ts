@@ -185,6 +185,7 @@ function createIterableMethod(
     const isKeyOnly = method === 'keys' && targetIsMap
     const innerIterator = target[method](...args)
     const wrap = isShallow ? toShallow : isReadonly ? toReadonly : toReactive
+    //避免keys 本身结果不变而values结果却变了的情况，所以map单独取了一个值 MAP_KEY_ITERATE_KEY
     !isReadonly &&
       track(
         rawTarget,
@@ -194,7 +195,7 @@ function createIterableMethod(
     // return a wrapped iterator which returns observed versions of the
     // values emitted from the real iterator
     return {
-      // iterator protocol
+      // iterator protocol  迭代器规范
       next() {
         const { value, done } = innerIterator.next()
         return done
@@ -204,7 +205,7 @@ function createIterableMethod(
               done
             }
       },
-      // iterable protocol
+      // iterable protocol   可迭代规范
       [Symbol.iterator]() {
         return this
       }

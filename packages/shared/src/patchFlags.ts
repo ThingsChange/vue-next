@@ -49,7 +49,7 @@ export const enum PatchFlags {
    * class/style). when this flag is present, the vnode also has a dynamicProps
    * array that contains the keys of the props that may change so the runtime
    * can diff them faster (without having to worry about removed props)
-   * 动态props
+   * 动态props  当有除了class和style之外的其他动态属性绑定时
    */
   PROPS = 1 << 3,
 
@@ -58,6 +58,7 @@ export const enum PatchFlags {
    * diff is always needed to remove the old key. This flag is mutually
    * exclusive with CLASS, STYLE and PROPS.
    * 有动态的key，也就是说props对象的key不是确定的
+   * 动态key值其实意味着full diff 与传统DIFF无二
    */
   FULL_PROPS = 1 << 4,
 
@@ -91,7 +92,7 @@ export const enum PatchFlags {
    * directives (onVnodeXXX hooks). since every patched vnode checks for refs
    * and onVnodeXXX hooks, it simply marks the vnode so that a parent block
    * will track it.
-   * 只有非props需要patch的，比如`ref`
+   * 只有非props需要patch的，比如`ref`  再比如 onVnodeBeforeMount 等钩子函数
    */
   NEED_PATCH = 1 << 9,
 

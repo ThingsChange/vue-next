@@ -295,7 +295,7 @@ export function trigger(
     // collection being cleared
     // trigger all effects for target
     deps = [...depsMap.values()]
-  //  如果是key是length且原对象是数组，找到key是length 类型的或者下标在新的下标key位置及其后面的元素的dep  收集起来（注意，循环中key可以是length ，可以是indexof，也可以是数组的下标）
+  //  如果是key是length且原对象是数组， 就是直接修改数组的length   找到key是length 类型的或者下标在新的下标key位置及其后面的元素的dep  收集起来（注意，循环中key可以是length ，可以是indexof，也可以是数组的下标）
   } else if (key === 'length' && isArray(target)) {
     depsMap.forEach((dep, key) => {
       if (key === 'length' || key >= (newValue as number)) {
@@ -313,8 +313,11 @@ export function trigger(
     // also run for iteration key on ADD | DELETE | Map.SET
     switch (type) {
       case TriggerOpTypes.ADD:
+        //是set 或者map
         if (!isArray(target)) {
+          //他俩都应该关心iterate_Key 对应着 forEach  size  keys[[set]]  values entries
           deps.push(depsMap.get(ITERATE_KEY))
+          //如果是map 的话，还需要单独关心下 keys  上面 ITERATE_KEY 关心的是值，或者键值对，而针对map.keys得出来的是跟值本身完全没关系的。
           if (isMap(target)) {
             deps.push(depsMap.get(MAP_KEY_ITERATE_KEY))
           }
