@@ -95,7 +95,7 @@ export const TeleportImpl = {
 
     if (n1 == null) {
       // insert anchors in the main view
-      // 创建注释节点
+      // 创建注释节点 标志着这个teleport原先在dom结构中哪个位置，我们称为原始锚点；具体见Demo/reactive/teleport.html
       const placeholder = (n2.el = __DEV__
         ? createComment('teleport start')
         : createText(''))
@@ -105,6 +105,7 @@ export const TeleportImpl = {
       // 插入注释节点 ,插入此时 teleport 组件在页面中的对应位置，即插入到 teleport 的父节点 container 中：
       insert(placeholder, container, anchor)
       insert(mainAnchor, container, anchor)
+      //找到要挂载的dom节点，就是to属性指定的DOM选择器对应的元素
       const target = (n2.target = resolveTarget(n2.props, querySelector))
       const targetAnchor = (n2.targetAnchor = createText(''))
       //  teleport 对应的target的Dom存在，则插入一个空的文本节点，也可以称为占位节点
@@ -132,10 +133,11 @@ export const TeleportImpl = {
           )
         }
       }
-
+      //如果新节点是teleport节点的禁用状态，那么就将新节点的子节点正常挂载到他在页面的原始位置，即上面声明的原始锚点
       if (disabled) {
         mount(container, mainAnchor)
       } else if (target) {
+        //说明指定的目标节点是存在的，那么将子节点挂载到target上指定的锚点处
         mount(target, targetAnchor)
       }
     } else {

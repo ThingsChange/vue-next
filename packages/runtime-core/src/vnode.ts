@@ -339,6 +339,7 @@ export function isVNode(value: any): value is VNode {
   return value ? value.__v_isVNode === true : false
 }
 
+//判断是否是相识节点，是相似的才有点儿用
 export function isSameVNodeType(n1: VNode, n2: VNode): boolean {
   if (
     __DEV__ &&

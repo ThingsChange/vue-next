@@ -77,7 +77,7 @@ export const enum PatchFlags {
 
   /**
    * Indicates a fragment with keyed or partially keyed children
-   * children中有带有key的节点的fragment
+   * children中有带有key的节点的fragment,部分有或者全部有
    */
   KEYED_FRAGMENT = 1 << 7,
 
