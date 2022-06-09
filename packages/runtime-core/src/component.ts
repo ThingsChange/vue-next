@@ -214,15 +214,18 @@ export interface ComponentInternalInstance {
   appContext: AppContext
   /**
    * Vnode representing this component in its parent's vdom tree
+   * 在其父级vdom树中表示此组件的Vnode
    */
   vnode: VNode
   /**
    * The pending new vnode from parent updates
+   * 父级更新中要更新vnode
    * @internal
    */
   next: VNode | null
   /**
    * Root vnode of this component's own vdom tree
+   * 组件渲染的子树
    */
   subTree: VNode
   /**
@@ -446,6 +449,10 @@ const emptyAppContext = createAppContext()
 
 let uid = 0
 
+
+/*
+* 定义组件实例，一个组件实例本质上是一个对象，它包含与组件有关的状态信息
+* */
 export function createComponentInstance(
   vnode: VNode,
   parent: ComponentInternalInstance | null,
@@ -459,15 +466,22 @@ export function createComponentInstance(
   const instance: ComponentInternalInstance = {
     uid: uid++,
     vnode,
+    //组件类型，options对象或者函数
     type,
     parent,
+    //app上下文
     appContext,
     root: null!, // to be immediately set
+    //要更新到的vNode
     next: null,
+    //存储组件的渲染函数返回的虚拟DOM，即组件子树
     subTree: null!, // will be set synchronously right after creation
+    //副作用对象
     effect: null!,
+    //带副作用的渲染函数
     update: null!, // will be set synchronously right after creation
     scope: new EffectScope(true /* detached */),
+    //渲染函数
     render: null,
     proxy: null,
     exposed: null,
@@ -475,6 +489,7 @@ export function createComponentInstance(
     withProxy: null,
     provides: parent ? parent.provides : Object.create(appContext.provides),
     accessCache: null!,
+    //渲染缓存
     renderCache: [],
 
     // local resovled assets
@@ -482,6 +497,7 @@ export function createComponentInstance(
     directives: null,
 
     // resolved props and emits options
+    // 工厂函数生成的默认props数据   格式化后的数据
     propsOptions: normalizePropsOptions(type, appContext),
     emitsOptions: normalizeEmitsOptions(type, appContext),
 
@@ -501,14 +517,21 @@ export function createComponentInstance(
     props: EMPTY_OBJ,
     attrs: EMPTY_OBJ,
     slots: EMPTY_OBJ,
+    //组件或者DOM的ref的引用
     refs: EMPTY_OBJ,
+    //setup函数返回的响应式结果
     setupState: EMPTY_OBJ,
+    //setup函数上下文数据
     setupContext: null,
 
     // suspense related
+    //异步组件
     suspense,
+    //异步组件ID
     suspenseId: suspense ? suspense.pendingId : 0,
+    //setup函数返回的异步函数结果
     asyncDep: null,
+    // 异步函数调用已完成
     asyncResolved: false,
 
     // lifecycle hooks
@@ -579,6 +602,7 @@ export function isStatefulComponent(instance: ComponentInternalInstance) {
 
 export let isInSSRComponentSetup = false
 
+// 执行组件定义的setup函数并将必要的信息挂载到组件实例上
 export function setupComponent(
   instance: ComponentInternalInstance,
   isSSR = false
@@ -586,6 +610,7 @@ export function setupComponent(
   isInSSRComponentSetup = isSSR
 
   const { props, children } = instance.vnode
+  //状态型组件，在setup函数中执行expose函数，导出具体的属性作为实例供其他组件使用，比如refs
   const isStateful = isStatefulComponent(instance)
   initProps(instance, props, isStateful, isSSR)
   initSlots(instance, children)
@@ -631,6 +656,9 @@ function setupStatefulComponent(
   instance.accessCache = Object.create(null)
   // 1. create public instance / render proxy
   // also mark it raw so it's never observed
+  //对ctx对象进行代理，渲染或者实例的代理，同时对该对象打上标记，标识不作为响应式数据去收集依赖
+  //?为什么要设置代理？？？
+  //? 方便用户使用，只需要你访问instance.proxy就能访问和修改data  setupState，props，appContext.config.globalProperties
   instance.proxy = markRaw(new Proxy(instance.ctx, PublicInstanceProxyHandlers))
   if (__DEV__) {
     exposePropsOnRenderContext(instance)
@@ -643,6 +671,7 @@ function setupStatefulComponent(
 
     setCurrentInstance(instance)
     pauseTracking()
+    //setup不收集依赖，换句话来说，就是只执行一次
     const setupResult = callWithErrorHandling(
       setup,
       instance,
@@ -687,6 +716,7 @@ export function handleSetupResult(
   setupResult: unknown,
   isSSR: boolean
 ) {
+  //如果setup返回结果是函数，这将其作为渲染函数，用来生成subTree  渲染vNode‘
   if (isFunction(setupResult)) {
     // setup returned an inline render function
     if (__SSR__ && (instance.type as ComponentOptions).__ssrInlineRender) {
@@ -696,6 +726,7 @@ export function handleSetupResult(
     } else {
       instance.render = setupResult as InternalRenderFunction
     }
+  //  如果执行结果是Object  这将结果变成响应式赋值为setupState，并挂载在实例身上
   } else if (isObject(setupResult)) {
     if (__DEV__ && isVNode(setupResult)) {
       warn(
@@ -746,6 +777,7 @@ export function registerRuntimeCompiler(_compile: any) {
 // dev only
 export const isRuntimeOnly = () => !compile
 
+//标准化模板和render函数
 export function finishComponentSetup(
   instance: ComponentInternalInstance,
   isSSR: boolean,
@@ -872,6 +904,13 @@ function createAttrsProxy(instance: ComponentInternalInstance): Data {
   )
 }
 
+//创建setup第二个参数  Context
+/*
+* $attrs  响应式对象，文档不更新么？
+* slots  非响应式对象  =$slots
+* 触发事件 =$emit
+* 暴露公共property（函数）
+* */
 export function createSetupContext(
   instance: ComponentInternalInstance
 ): SetupContext {

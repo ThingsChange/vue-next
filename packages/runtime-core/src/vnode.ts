@@ -226,6 +226,9 @@ export let currentBlock: VNode[] | null = null
  * because the children of the block are evaluated before `createBlock` itself
  * is called. The generated code typically looks like this:
  *
+ * openBlock 一定要在createBlock之前调用，因为createBlock执行时，子代节点已经创建完毕，已经无法再进行子代动态内容收集
+ * 因此需要确保在子代动态节点创建之前，就开辟出对应的block数据仓库，然后再执行createBlock时，对应的children已创建且收集完毕
+ *
  * ```js
  * function render() {
  *   return (openBlock(),createBlock('div', null, [...]))
@@ -279,6 +282,7 @@ function setupBlock(vnode: VNode) {
   closeBlock()
   // a block is always going to be patched, so track it as a child of its
   // parent block
+  // 当前vnode作为父节点的dynamicChildren项收集
   if (isBlockTreeEnabled > 0 && currentBlock) {
     currentBlock.push(vnode)
   }
@@ -313,6 +317,7 @@ export function createElementBlock(
  * Create a block root vnode. Takes the same exact arguments as `createVNode`.
  * A block root keeps track of dynamic nodes within the block in the
  * `dynamicChildren` array.
+ * 创建block vnode  他和vnode创建参数几乎相同，多了dynamicChildren 数组存放子代动态节点
  *
  * @private
  */
@@ -323,6 +328,7 @@ export function createBlock(
   patchFlag?: number,
   dynamicProps?: string[]
 ): VNode {
+  //isBlockNode 避免block将自身收集到仓库中
   return setupBlock(
     createVNode(
       type,
@@ -384,6 +390,10 @@ export const InternalObjectKey = `__vInternal`
 const normalizeKey = ({ key }: VNodeProps): VNode['key'] =>
   key != null ? key : null
 
+/*
+  *ref 标准化
+  *
+ */
 const normalizeRef = ({
   ref,
   ref_key,
@@ -411,6 +421,7 @@ function createBaseVNode(
   const vnode = {
     __v_isVNode: true,
     __v_skip: true,
+    //如果是对象，则为组件的选项对象
     type,
     props,
     key: props && normalizeKey(props),

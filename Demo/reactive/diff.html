@@ -21,25 +21,18 @@
   const MyComponent = {
     template: `
                 <button :style='state.abcd' @click='addOneNum'>
-                123
+                变化
                 </button>
-<!--                <div v-for='item in state.arr'>{{item}}</div>-->
-                <div>{{len}}</div>
+                <div v-for='item in state.arr' :key='item.id'>{{item.id}}</div>
             `,
     setup() {
       const state = reactive({
-        arr:[1,2,3],
-        a:1,
-        b:2,
-        c:3,
-        abcd:{color:'red'}
-      })
-      let len = computed(()=>{
-        return state.c+state.a+state.b
+        //A B  C D E F  G
+        arr:[{id:'a'}, { id:'b' }, { id:'c' },{id:'d'}, { id:'e' }, { id:'f' }]
       })
       function  addOneNum(){
         // state.arr.push(0)
-        state.a++;
+        state.arr =[{id:'a'},  { id:'c' },{id:'d'},{ id:'b' }, { id:'i' }, { id:'f' }]
         /*
         * 1.state.a 自增  触发依赖他的副作用对象  len    computed.effect.schduler
         * 2.设置computed设置为脏值，并触发计算属性的副作用对象执行（此处是render）
@@ -57,7 +50,6 @@
       return {
         state,
         addOneNum,
-        len
       }
     }
   }

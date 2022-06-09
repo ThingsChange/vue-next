@@ -56,7 +56,7 @@ export const enum PatchFlags {
   /**
    * Indicates an element with props with dynamic keys. When keys change, a full
    * diff is always needed to remove the old key. This flag is mutually
-   * exclusive with CLASS, STYLE and PROPS.
+   * exclusive with CLASS, STYLE and PROPS.<互斥>
    * 有动态的key，也就是说props对象的key不是确定的
    * 动态key值其实意味着full diff 与传统DIFF无二
    */

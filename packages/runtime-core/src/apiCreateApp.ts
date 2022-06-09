@@ -178,17 +178,18 @@ export function createAppAPI<HostElement>(
   render: RootRenderFunction,
   hydrate?: RootHydrateFunction
 ): CreateAppFunction<HostElement> {
+  //接收根级组件，和组件属性
   return function createApp(rootComponent, rootProps = null) {
     if (rootProps != null && !isObject(rootProps)) {
       __DEV__ && warn(`root props passed to app.mount() must be an object.`)
       rootProps = null
     }
-
+    //创建vue应用上下文，上下文包括 应用本身，设置项，组件、指令注册仓库
     const context = createAppContext()
     const installedPlugins = new Set()
 
     let isMounted = false
-
+    //为应用上下文装载应用
     const app: App = (context.app = {
       _uid: uid++,
       _component: rootComponent as ConcreteComponent,
@@ -244,7 +245,7 @@ export function createAppAPI<HostElement>(
         }
         return app
       },
-
+      //全局注册组件，入参为组件码，组件option
       component(name: string, component?: Component): any {
         if (__DEV__) {
           validateComponentName(name, context.config)
@@ -280,12 +281,14 @@ export function createAppAPI<HostElement>(
         isSVG?: boolean
       ): any {
         if (!isMounted) {
+          //创建根组件对应的vnode
           const vnode = createVNode(
             rootComponent as ConcreteComponent,
             rootProps
           )
           // store app context on the root VNode.
           // this will be set on the root instance on initial mount.
+          //在根组件上挂载应用上下文
           vnode.appContext = context
 
           // HMR root reload
@@ -296,11 +299,14 @@ export function createAppAPI<HostElement>(
           }
 
           if (isHydrate && hydrate) {
+            //服务端渲染
             hydrate(vnode as VNode<Node, Element>, rootContainer as any)
           } else {
+            //闭包外部传入的渲染器，整个vue渲染的l主要逻辑控制都是render注入的
             render(vnode, rootContainer, isSVG)
           }
           isMounted = true
+          //记录根级容器
           app._container = rootContainer
           // for devtools and telemetry
           ;(rootContainer as any).__vue_app__ = app

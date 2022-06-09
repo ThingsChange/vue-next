@@ -290,6 +290,7 @@ export const PublicInstanceProxyHandlers: ProxyHandler<any> = {
     // access on a plain object, so we use an accessCache object (with null
     // prototype) to memoize what access type a key corresponds to.
     let normalizedProps
+    //?  a 、 如果key值不以$开头
     if (key[0] !== '$') {
       const n = accessCache![key]
       if (n !== undefined) {
@@ -325,7 +326,7 @@ export const PublicInstanceProxyHandlers: ProxyHandler<any> = {
         accessCache![key] = AccessTypes.OTHER
       }
     }
-
+    //? b、以$开头的部分key值  如果不是上述key值，则依次从ctx和appContext.config.globalProperties，最后如果找不到就获取失败。
     const publicGetter = publicPropertiesMap[key]
     let cssModule, globalProperties
     // public $xxx properties
@@ -388,7 +389,7 @@ export const PublicInstanceProxyHandlers: ProxyHandler<any> = {
       }
     }
   },
-
+  // 只允许对setupState和data的key进行赋值，且优先给setupState赋值，如果前两者都没有对应的key直接赋值在ctx上。
   set(
     { _: instance }: ComponentRenderContext,
     key: string,

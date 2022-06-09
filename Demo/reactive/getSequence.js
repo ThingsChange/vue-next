@@ -1,7 +1,7 @@
 // [1,3,6,7,9,4,10,5,6];
 let b =[1,3,6,7,9,4,10,5,6]
 b = [2, 1, 5, 3, 6, 4, 8, 9, 7];
-b =  [1,2,4,3,6,5,7];
+// b =  [10,20,40,30,60,50,70];
 //简直就是妙脆角
 //1,5,6
 function getSequence(arr) {
@@ -22,6 +22,7 @@ function getSequence(arr) {
     }
    left= 0;
     right = result.length-1;
+    //二分法找到第一个比当前值大的元素位置
     while(left<right){
       center = left+right >>1;
       if(current > arr[result[center]]){
@@ -39,6 +40,8 @@ function getSequence(arr) {
     }
 
   }
+  console.log('这里是   result  ------没有调整前------', JSON.stringify(result))
+  console.log('这里是   p  ------------', p)
   left = result.length;
   right = result[left-1];
   while(left-->0){

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Document</title>
+  <script src="../../packages/vue/dist/vue.global.js"></script>
+</head>
+
+<body>
+<div id="app"></div>
+<script>
+  const {
+    createApp,
+    reactive,
+    computed,
+    effect,
+    ref
+  } = Vue
+  const MyComponent = {
+    template: `
+      <hello-world :msg="msg" />
+      <h1>App 组件显示:</h1>
+      <ul>
+      <li v-for="item in vue3.feature" v-bind:key="item">{{ item }}</li>
+      </ul>
+      <button @click="changeMsg">切换</button>
+            `,
+    setup() {
+      const msg = ref("Vue 2");
+
+      const feature3 = ["reactive", "composition api", "setup", "toRef", "Teleport"];
+      const feature2 = ["reactive", "option api"];
+      const vue3 = reactive({ feature: feature2});
+      let current = 0;
+
+      const changeMsg = () => {
+        if (current == 0) {
+          msg.value = "Vue 3";
+          vue3.feature = feature3;
+          current = 1;
+        } else {
+          msg.value = "Vue 2";
+          vue3.feature = feature2;
+          current = 0;
+        }
+      };
+
+      return {
+        msg,
+        vue3,
+        changeMsg,
+      }
+    },
+    components:{
+      "hello-world":{
+        template:` <h1>Hello 组件显示:{{ msg }}</h1>`,
+        props:{
+          msg:{
+            type:String,
+            required:true
+          }
+        }
+      }
+    }
+  }
+  let app = createApp(MyComponent)
+  app.component('hello-world',{
+    "hello-world": {
+      template: ` <h1>Hello 组件显示:{{ msg }}</h1>`,
+      props: {
+        msg: {
+          type: String,
+          required: true
+        }
+      }
+    }
+  })
+  app.mount('#app')
+</script>
+</body>
+
+</html>

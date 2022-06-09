@@ -311,7 +311,7 @@ function baseCreateRenderer(
   if (__DEV__ || __FEATURE_PROD_DEVTOOLS__) {
     setDevtoolsHook(target.__VUE_DEVTOOLS_GLOBAL_HOOK__, target)
   }
-
+  //你所使用的渲染环境下 的element  node的操作api工具集，从外部传入，不同平台可定制化统一的配置入口
   const {
     insert: hostInsert,
     remove: hostRemove,
@@ -352,7 +352,9 @@ function baseCreateRenderer(
       unmount(n1, parentComponent, parentSuspense, true)
       n1 = null
     }
-
+    // BAIL表示本来可以走diff优化通道，但是由于某种原因需要强行退出优化通道转到
+    // 全量diff，比如开发者没有通过compiler生成vnode，而是手写render函数生成
+    // vnode，手写render函数创建出的vnode具有不确定性，因此需要强制全量diff
     if (n2.patchFlag === PatchFlags.BAIL) {
       optimized = false
       n2.dynamicChildren = null
@@ -443,6 +445,7 @@ function baseCreateRenderer(
     }
 
     // set ref
+    //设置vnode的引用接口，每次patch都需要将ref更新为最新的，保证外部引用到的都是最新的有效引用，并回收无效引用
     if (ref != null && parentComponent) {
       setRef(ref, n1 && n1.ref, parentSuspense, n2 || n1, !n2)
     }
@@ -1210,7 +1213,15 @@ function baseCreateRenderer(
       updateComponent(n1, n2, optimized)
     }
   }
-
+/*
+*
+* 1、创建组件实例：我们定义的组件实际上只是一个option Object，因此我们需要为其创建一个实例上下文作为整个组件的局部宿主环境
+*2、挂载setup信息：setup就是我们在组件中定义的setup函数，用来安装组件所需的运行时信息，比如我们自定义的响应式数据、各种钩子等
+*3、生成渲染副作用：渲染副作用就是我们在组件中定义的响应式数据收集的依赖之一，在首次组件挂载时渲染副作用被作为依赖进行收集，
+* 当我们改变响应式数据时，触发渲染副作用的重新执行完成re-render，从而达到数据驱动视图更新的目的。
+* 由此可见，创建渲染副作用其实是将渲染系统和响应式系统进行桥接的关键所在
+*
+* */
   const mountComponent: MountComponentFn = (
     initialVNode,
     container,
@@ -1224,6 +1235,7 @@ function baseCreateRenderer(
     // mounting
     const compatMountInstance =
       __COMPAT__ && initialVNode.isCompatRoot && initialVNode.component
+    // 创建组件vnode对应的组件实例
     const instance: ComponentInternalInstance =
       compatMountInstance ||
       (initialVNode.component = createComponentInstance(
@@ -1247,6 +1259,7 @@ function baseCreateRenderer(
     }
 
     // resolve props and slots for setup context
+    // 执行组件定义的setup函数并将必要的信息挂载到组件实例上
     if (!(__COMPAT__ && compatMountInstance)) {
       if (__DEV__) {
         startMeasure(instance, `init`)
@@ -1270,7 +1283,7 @@ function baseCreateRenderer(
       }
       return
     }
-
+    // 生成渲染副作用，创建渲染系统与响应式系统之间的联系
     setupRenderEffect(
       instance,
       initialVNode,
@@ -1333,13 +1346,14 @@ function baseCreateRenderer(
   ) => {
     const componentUpdateFn = () => {
       if (!instance.isMounted) {
+        // ?1. 组件未挂载（初次挂载或已卸载）进行组件挂载操作
         let vnodeHook: VNodeHook | null | undefined
         const { el, props } = initialVNode
         const { bm, m, parent } = instance
         const isAsyncWrapperVNode = isAsyncWrapper(initialVNode)
 
         toggleRecurse(instance, false)
-        // beforeMount hook
+        // beforeMount hook  执行beforeMount生命周期钩子
         if (bm) {
           invokeArrayFns(bm)
         }
@@ -1357,7 +1371,7 @@ function baseCreateRenderer(
           instance.emit('hook:beforeMount')
         }
         toggleRecurse(instance, true)
-
+        //服务端渲染相关
         if (el && hydrateNode) {
           // vnode has adopted host node - perform hydration instead of mount.
           const hydrateSubTree = () => {
@@ -1398,6 +1412,10 @@ function baseCreateRenderer(
           if (__DEV__) {
             startMeasure(instance, `render`)
           }
+          // 执行组件内部的render函数 (手写或template编译生成) 生成渲染vnode，渲染vnode就是组件实际要渲染出来的
+          // 内容对应的vnode，并将渲染vnode存储到组件实例上
+          // 注意：执行render函数会访问组件实例上的响应式数据，从而触发依赖收集，当前定义的renderEffect会被收集到依赖仓库
+          // 当后续发生数据变化时，renderEffect则会被派发，触发re-render
           const subTree = (instance.subTree = renderComponentRoot(instance))
           if (__DEV__) {
             endMeasure(instance, `render`)
@@ -1417,9 +1435,11 @@ function baseCreateRenderer(
           if (__DEV__) {
             endMeasure(instance, `patch`)
           }
+          //将渲染vnode的el作为组件容器的el
           initialVNode.el = subTree.el
         }
         // mounted hook
+        //mounted生命周期，在啊nextTick渲染任务全部执行完后触发，保证在mounted钩子做外部业务逻辑时整个vue控制的dom是全部挂载完成的，确保生命周期安全性
         if (m) {
           queuePostRenderEffect(m, parentSuspense)
         }
@@ -1459,6 +1479,7 @@ function baseCreateRenderer(
             )
           }
         }
+        // 标记组件已挂载完成
         instance.isMounted = true
 
         if (__DEV__ || __FEATURE_PROD_DEVTOOLS__) {
@@ -1471,6 +1492,9 @@ function baseCreateRenderer(
         // updateComponent
         // This is triggered by mutation of component's own state (next: null)
         // OR parent calling processComponent (next: VNode)
+        //?2、组件更新
+        //?a、 组件内部响应式数据变化了，就会触发数据所属组件的更新流程
+        //?b 、父组件更新引发子代节点的diff也会触发子组件的processComponent
         let { next, bu, u, parent, vnode } = instance
         let originNext = next
         let vnodeHook: VNodeHook | null | undefined
@@ -1484,10 +1508,12 @@ function baseCreateRenderer(
           next.el = vnode.el
           updateComponentPreRender(instance, next, optimized)
         } else {
+          // 记录最新创建的组件vnode（每次render都会创建全新的vnode）
           next = vnode
         }
 
         // beforeUpdate hook
+        // ?beforeUpdate生命周期
         if (bu) {
           invokeArrayFns(bu)
         }
@@ -1507,16 +1533,20 @@ function baseCreateRenderer(
         if (__DEV__) {
           startMeasure(instance, `render`)
         }
+        // ?重新执行组件的render函数，引用组件内部的最新数据生成新的渲染vnode
         const nextTree = renderComponentRoot(instance)
         if (__DEV__) {
           endMeasure(instance, `render`)
         }
+        // 旧的渲染vnode
         const prevTree = instance.subTree
+        // 组件实例记录的渲染vnode更新为最新渲染vnode
         instance.subTree = nextTree
 
         if (__DEV__) {
           startMeasure(instance, `patch`)
         }
+        // ?新旧渲染vnode做diff，走正常的patch流程将model变化映射到dom上
         patch(
           prevTree,
           nextTree,
@@ -1570,6 +1600,7 @@ function baseCreateRenderer(
     }
 
     // create reactive effect for rendering
+    // 创建渲染effect，并将其挂载到组件实例上作为更新执行器
     const effect = (instance.effect = new ReactiveEffect(
       componentUpdateFn,
       () => queueJob(instance.update),
@@ -1595,19 +1626,38 @@ function baseCreateRenderer(
 
     update()
   }
-
+  /*
+   * 组件执行render函数创建新vnode前进行组件状态仓库的更新：
+   * 组件属性更新，组件始终复用初始化时创建的组件实例，同时render函数每次创建
+   * 新的vnode都是从通过renderProxy层到实例对应的存储位置取值，
+   *  比如props、attrs、setupState等，并且自始至终都是使用相同的存储位置引用。
+   *  因此我们每次进行组件更新时一定要先把最新的状态更新到renderProxy溯源查找
+   *  的位置，这样就能够保证每次render函数执行时都能去到最新的有效状态，避免
+   *  组件实例状态源内状态与实际不同步的问题
+   */
   const updateComponentPreRender = (
     instance: ComponentInternalInstance,
     nextVNode: VNode,
     optimized: boolean
   ) => {
+    // re-render前更新vnode和组件实例间的引用关系，更新过程中一直复用最初声明的
+    // 组件实例，每次更新会创建新的组件vnode，将新vnode挂载到组件实例上
     nextVNode.component = instance
     const prevProps = instance.vnode.props
     instance.vnode = nextVNode
     instance.next = null
+    // 将最新的属性、插槽信息更新到组件实例的对应存储仓库中，保证renderProxy溯源的正确性
     updateProps(instance, nextVNode.props, prevProps, optimized)
     updateSlots(instance, nextVNode.children, optimized)
 
+    // 组件更新effect执行代表此时已经开始执行主队列的渲染任务，调度系统在跑主渲染任务前
+    // 会批量跑并清空前置任务队列，但是这并不能保证主渲染任务执行时前置任务一定全部清空，
+    // 原因如下：
+    // 主渲染任务执行时会更新组件实例上的props，此时有可能触发前置effect创建并进入前置任务队列，
+    // 但前置任务一定是期望在主任务前执行完的，那怎么办呢？别急，我们还有机会去批量清空这些
+    // 新产生的前置任务，主渲染任务的核心是patch，只要patch没开始执行，我们就可以认为渲染任务
+    // 还没有真正开始执行，因此我们只要在patch执行之前去批量清空一下前置任务队列就可以保证
+    // 所有前置任务一定是在主渲染任务执行前跑完的
     pauseTracking()
     // props update may have triggered pre-flush watchers.
     // flush them before the render update.
@@ -1922,7 +1972,7 @@ function baseCreateRenderer(
     // [i ... e1 + 1]: a b [c d e] f g
     // [i ... e2 + 1]: a b [e d c h] f g
     // i = 2, e1 = 4, e2 = 5
-    //  ?5、新序列  旧序列 头尾指针均为相遇，中间存在着"未知序列"，本段算法中新旧序列只带头尾指针之间的“未知序列”
+    //  ?5、新序列  旧序列 头尾指针均未相遇，中间存在着"未知序列"，本段算法中新旧序列只带头尾指针之间的“未知序列”
     else {
       //旧未知序列头部指针
       const s1 = i // prev starting index
@@ -1972,7 +2022,7 @@ function baseCreateRenderer(
       // no corresponding old node.
       // used for determining longest stable subsequence
       /*
-      *  创建新旧节点index映射，和 Map<newIndex, oldIndex> 描述功能一样
+      *  创建新旧节点index映射，和 newIndexToOldIndexMap<newIndex, oldIndex> 描述功能一样
       * 0 表示新节点没有相对应的旧节点，为了将旧节点index = 0和表示没有对应
       * 节点的 0 进行区分，因此对应的旧节点index均 +1 的偏移值
       * 建立新旧index映射是为了后面计算最长稳定子序列，从而用最少的次数把发生
@@ -1993,12 +2043,12 @@ function baseCreateRenderer(
           continue
         }
         let newIndex
-        //? 尝试从新序列中找出和当前旧机电相对应的节点，优先找key相同的，如果没有key，那么就找无key属性的相似节点
+        //!? 尝试从新序列中找出和当前旧节点相对应的节点，优先找key相同的，如果没有key，那么就找无key属性的相似节点
         if (prevChild.key != null) {
           newIndex = keyToNewIndexMap.get(prevChild.key)
         } else {
           // key-less node, try to locate a key-less node of the same type
-          //旧节点没有key，尝试从新序列中找出一个没有patch过且和当前旧节点属于相识节点的新节点，作为旧节点的匹配性
+          //旧节点没有key，尝试从新序列中找出一个没有patch过且和当前旧节点属于相似节点的新节点，作为旧节点的匹配性
           for (j = s2; j <= e2; j++) {
             if (
               newIndexToOldIndexMap[j - s2] === 0 &&
@@ -2048,6 +2098,7 @@ function baseCreateRenderer(
       // 进行移动，因此找出最多的相对位置不变的旧节点，这部分节点是无需更新位置
       // 的，那么其他的节点自然就是需要进行位置更新的。这样保证我们准确定位到哪
       // 些新节点需要移动，以进行最少次数的dom操作
+      //!此处得到是”未知节点中【下面例子中的  D C F E】“不需要移动的下标【1,3】
       // generate longest stable subsequence only when nodes have moved
       const increasingNewIndexSequence = moved
         ? getSequence(newIndexToOldIndexMap)
@@ -2060,7 +2111,7 @@ function baseCreateRenderer(
       *     A B  C D E F  G
             A B  D C F E  G
          [1,2,4,3,6,5,7]
-           [3,2,5,4]
+           [3,2,5,4]   newIndexToOldIndexMap
           s2=2  toBePatched=4    nextIndex =5
           increasingNewIndexSequence=[1,3]
          E 不用动
@@ -2068,6 +2119,19 @@ function baseCreateRenderer(
        C不用动
       D挪到c前面
       * */
+      /*
+      *start
+      * i =3; nextIndex = 2+3；  nextChild=E  anchor=G   newIndexToOldIndexMap[i] =4    moved=true  j =1;  increasingNewIndexSequence[j]          =====>j--;不需要移动E
+      * i =2; nextIndex = 2+2；  nextChild=F anchor=E   newIndexToOldIndexMap[i] =5    moved=true  j =0;           =====>需要移动F到E前面
+      * i =1; nextIndex = 2+1；  nextChild=C anchor=F   newIndexToOldIndexMap[i] =2    moved=true  j =0;           =====>j--  不需要移动
+      * i =0; nextIndex = 2+0；  nextChild=D anchor=C   newIndexToOldIndexMap[i] =3   moved=true  j =-1;           =====>需要移动D到C的前面
+      * end
+      *
+      * */
+      //倒序开始，nextIndex 就是倒序开始的下标  遍历的其实是需要对比的，所以i的值和increasingNewIndexSequence会有重叠性
+      //e.g. 以上例，i 分别取值 3,2,1,0，代表元素分别是E F C D;而稳定性序列increasingNewIndexSequence   =【1,3】，表示下标1，和3是稳定的不需要移动；
+      //未在稳定序列的进行移动即可
+
       for (i = toBePatched - 1; i >= 0; i--) {
         const nextIndex = s2 + i
         const nextChild = c2[nextIndex] as VNode
@@ -2094,14 +2158,16 @@ function baseCreateRenderer(
           // There is no stable subsequence (e.g. a reverse)
           // OR current node is not among the stable sequence
           /*
+          *遍历的是bePatched 长度，那么倒序，i 就是需要对比的下标集合的倒序。
           * 什么时候会移动节点？
-          * 1、节点序列反序（无最长稳定子序列）
+          * 1、节点序列反序（无最长稳定子序列）<遍历完了increasingNewIndexSequence>
           * 2、当前新节点index和当前稳定子序列index不同，说明是相对位置发生变化的节点
+          * <倒着遍历，如果是不需要移动的，那么稳定列表中最后的一个下标，应该和当前对比新节点的下标相同>
           * */
           if (j < 0 || i !== increasingNewIndexSequence[j]) {
             move(nextChild, container, anchor, MoveType.REORDER)
           } else {
-            // index 形同说明当前新节点无需移动位置，因为最长稳定子序列中index表示该index 对应新节点未发生相对位置移动
+            // index 相同说明当前新节点无需移动位置，因为最长稳定子序列中index表示该index 对应新节点未发生相对位置移动
             j--
           }
         }
@@ -2175,8 +2241,9 @@ function baseCreateRenderer(
       hostInsert(el!, container, anchor)
     }
   }
-
+  //卸载
   const unmount: UnmountFn = (
+    //即将要卸载的
     vnode,
     parentComponent,
     parentSuspense,
@@ -2189,11 +2256,12 @@ function baseCreateRenderer(
       ref,
       children,
       dynamicChildren,
-      shapeFlag,
-      patchFlag,
+      shapeFlag,//vNode形态标识
+      patchFlag,//vNode打补丁的优化标识
       dirs
     } = vnode
     // unset ref
+    //对于非空vNode应用ref，进行卸载前，GC回收过期的ref消息
     if (ref != null) {
       setRef(ref, null, parentSuspense, vnode, true)
     }
@@ -2204,6 +2272,7 @@ function baseCreateRenderer(
     }
 
     const shouldInvokeDirs = shapeFlag & ShapeFlags.ELEMENT && dirs
+    //是否需要执行vnode中自定义指令
     const shouldInvokeVnodeHook = !isAsyncWrapper(vnode)
 
     let vnodeHook: VNodeHook | undefined | null
@@ -2214,9 +2283,11 @@ function baseCreateRenderer(
       invokeVNodeHook(vnodeHook, parentComponent, vnode)
     }
 
+    //组件卸载逻辑
     if (shapeFlag & ShapeFlags.COMPONENT) {
       unmountComponent(vnode.component!, parentSuspense, doRemove)
     } else {
+      //suspense 有自己的卸载逻辑
       if (__FEATURE_SUSPENSE__ && shapeFlag & ShapeFlags.SUSPENSE) {
         vnode.suspense!.unmount(parentSuspense, doRemove)
         return
@@ -2263,6 +2334,10 @@ function baseCreateRenderer(
       }
     }
 
+    /*
+    * 调用props中卸载后的钩子和自定义指令，生性周期里去做业务逻辑的时候，确定操作的vnode已经完全版mount,或者UNmount
+    * 这样生命周期是安全的
+    * */
     if (
       (shouldInvokeVnodeHook &&
         (vnodeHook = props && props.onVnodeUnmounted)) ||
@@ -2336,6 +2411,7 @@ function baseCreateRenderer(
     const { bum, scope, update, subTree, um } = instance
 
     // beforeUnmount hook
+    //执行beforeUnmount钩子函数
     if (bum) {
       invokeArrayFns(bum)
     }
@@ -2348,6 +2424,7 @@ function baseCreateRenderer(
     }
 
     // stop effects in component scope
+    //足见实例收集的effect任务，需要做统一回收处理，消除其对全局环境的副作用，并将effect本身置为非激活态
     scope.stop()
 
     // update may be null if a component is unmounted before its async
@@ -2358,6 +2435,7 @@ function baseCreateRenderer(
       unmount(subTree, instance, parentSuspense, doRemove)
     }
     // unmounted hook
+    //组件内部状态、对应子树全部卸载完毕，将mounted钩子作为渲染后置任务推入任务队列，等待渲染任务执行完毕后，批量执行
     if (um) {
       queuePostRenderEffect(um, parentSuspense)
     }
@@ -2370,6 +2448,7 @@ function baseCreateRenderer(
         parentSuspense
       )
     }
+    // 将卸载后的组件实例做相应的flag态标记
     queuePostRenderEffect(() => {
       instance.isUnmounted = true
     }, parentSuspense)
@@ -2427,11 +2506,14 @@ function baseCreateRenderer(
         unmount(container._vnode, null, null, true)
       }
     } else {
-      //对比更新  旧、新、容器、锚点，父组件、父
+      //对比更新  旧、新、容器、锚点（用于往锚点前插入节点），父组件、父，是否启用diff优化
       patch(container._vnode || null, vnode, container, null, null, null, isSVG)
     }
+    //在这里整个vnode tree 全部挂载完毕后，会批量执行在渲染过程中产生的一些钩子，比如后置的生命周期，onMounted会在vNode整体打
+    //补丁到真是dom后，批量进行执行，
     //清空post队列
     flushPostFlushCbs()
+    //挂在后将vNnod缓存起来
     container._vnode = vnode
   }
 
@@ -2448,6 +2530,7 @@ function baseCreateRenderer(
     o: options
   }
 
+  //服务器渲染相关
   let hydrate: ReturnType<typeof createHydrationFunctions>[0] | undefined
   let hydrateNode: ReturnType<typeof createHydrationFunctions>[1] | undefined
   if (createHydrationFns) {
@@ -2455,7 +2538,7 @@ function baseCreateRenderer(
       internals as RendererInternals<Node, Element>
     )
   }
-
+  // 返回渲染器
   return {
     render,
     hydrate,

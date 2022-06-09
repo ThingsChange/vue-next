@@ -45,13 +45,15 @@ export function setRef(
     // because the template ref is forwarded to inner component
     return
   }
-
+  // 状态型组件的引用为组件实例上的暴露信息或组件实例的渲染代理
+  // 其他形式的vnode直接引用组件对应的实例dom元素，因为我们不关心其内部状态
   const refValue =
     vnode.shapeFlag & ShapeFlags.STATEFUL_COMPONENT
       ? getExposeProxy(vnode.component!) || vnode.component!.proxy
       : vnode.el
   const value = isUnmount ? null : refValue
 
+  // ref持有者和引用源获取者，owner就是持有者组件实例，ref就是我们在组件中定义的ref属性
   const { i: owner, r: ref } = rawRef
   if (__DEV__ && !owner) {
     warn(
@@ -65,6 +67,7 @@ export function setRef(
   const setupState = owner.setupState
 
   // dynamic ref changed. unset old ref
+  // 清理旧的无效引用信息，防止引用无法释放导致内存泄漏
   if (oldRef != null && oldRef !== ref) {
     if (isString(oldRef)) {
       refs[oldRef] = null
@@ -111,10 +114,14 @@ export function setRef(
           warn('Invalid template ref type:', ref, `(${typeof ref})`)
         }
       }
+      // 为什么这里要把更新ref的任务放到渲染任务执行后呢？因为渲染任务是新开微任务在nextTick执行，
+      // 所以直接更新ref会导致取不到最新的引用信息，只有nextTick的渲染任务全部执行完，这时才能
+      // 拿到最新的有效引用
       if (value) {
         // #1789: for non-null values, set them after render
         // null values means this is unmount and it should not overwrite another
         // ref with the same key
+        // 调度器按照id编号递增执行任务，保证在主任务队列的渲染任务执行完最快的执行ref更新任务
         ;(doSet as SchedulerJob).id = -1
         queuePostRenderEffect(doSet, parentSuspense)
       } else {
