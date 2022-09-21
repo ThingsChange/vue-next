@@ -5,7 +5,7 @@ b = [2, 1, 5, 3, 6, 4, 8, 9, 7];
 //简直就是妙脆角
 //1,5,6
 function getSequence(arr) {
-//  存放满足最长递增子序列的下标，默认值为0
+//  存放满足最长递增子序列的下标，默认值为0，在没有被修正顺序之前，我们希望这个最长递增子序列增长速度越慢越好
   let result = [0]
   let p = arr.slice()
   const len = arr.length
@@ -31,7 +31,7 @@ function getSequence(arr) {
         right = center
       }
     }
-    //交换位置
+    //交换位置    让最长递增子序列上升速度越慢越好
     if(current<arr[result[left]]){
       if(left>0){
         p[i] = result[left-1]
@@ -42,6 +42,8 @@ function getSequence(arr) {
   }
   console.log('这里是   result  ------没有调整前------', JSON.stringify(result))
   console.log('这里是   p  ------------', p)
+  //因为result存储的是最慢递增子序列的下标，所以最后一位肯定是最长递增子序列中最大的，也就是说，最后一位的坐标是精准的。
+  //right 变成当前位置的精准坐标。P总存储的是满足当前递增的上一个元素的下标
   left = result.length;
   right = result[left-1];
   while(left-->0){

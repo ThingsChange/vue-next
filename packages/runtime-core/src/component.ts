@@ -707,6 +707,8 @@ function setupStatefulComponent(
       handleSetupResult(instance, setupResult, isSSR)
     }
   } else {
+    // 如果不存在setup函数就直接进行下面optionApi的挂载，
+    // 不包括props的执行，在Vue3中，props最先执行，之后是setup，最后是其他optionAPI
     finishComponentSetup(instance, isSSR)
   }
 }
@@ -909,11 +911,13 @@ function createAttrsProxy(instance: ComponentInternalInstance): Data {
 * $attrs  响应式对象，文档不更新么？
 * slots  非响应式对象  =$slots
 * 触发事件 =$emit
-* 暴露公共property（函数）
+* expose 暴露公共property（函数）
 * */
 export function createSetupContext(
   instance: ComponentInternalInstance
 ): SetupContext {
+  //expose 函数，在setup返回的渲染函数时，因为返回渲染函数就意味着无法对外暴露其他的东西，
+  // 此时通过expose原函数暴露具体的值或者属性
   const expose: SetupContext['expose'] = exposed => {
     if (__DEV__ && instance.exposed) {
       warn(`expose() should be called only once per setup().`)

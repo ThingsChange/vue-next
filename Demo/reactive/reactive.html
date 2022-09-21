@@ -24,22 +24,30 @@
                 123
                 </button>
 <!--                <div v-for='item in state.arr'>{{item}}</div>-->
-                <div>{{len}}</div>
+<!--                <div>{{len}}</div>-->
+                <div>{{state.setList}}</div>
+               <div> {{len2}}</div>
             `,
     setup() {
+      let times =1;
       const state = reactive({
         arr:[1,2,3],
+        setList:new Map(),
         a:1,
         b:2,
         c:3,
         abcd:{color:'red'}
       })
-      let len = computed(()=>{
+      /*let len = computed(()=>{
         return state.c+state.a+state.b
+      })*/
+      let len2= computed(()=>{
+        return state.setList.size
       })
       function  addOneNum(){
+        state.setList.set(times+'',times++);
         // state.arr.push(0)
-        state.a++;
+        // state.a++;
         /*
         * 1.state.a 自增  触发依赖他的副作用对象  len    computed.effect.schduler
         * 2.设置computed设置为脏值，并触发计算属性的副作用对象执行（此处是render）
@@ -57,7 +65,8 @@
       return {
         state,
         addOneNum,
-        len
+        // len,
+        len2
       }
     }
   }

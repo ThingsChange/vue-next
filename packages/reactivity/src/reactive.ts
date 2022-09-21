@@ -193,7 +193,7 @@ function createReactiveObject(
   }
   // target is already a Proxy, return it.
   // exception: calling readonly() on a reactive object
-  //  如果target本身被代理过，并且此次调用使用readOnly（target）来生成只读的响应式数据
+  //  如果target是代理对象，直接返回该代理对象；只有一个例外，那就是此次调用使用readOnly（target）来生成只读的响应式数据
   if (
     target[ReactiveFlags.RAW] &&
     !(isReadonly && target[ReactiveFlags.IS_REACTIVE])
@@ -210,6 +210,8 @@ function createReactiveObject(
   if (targetType === TargetType.INVALID) {
     return target
   }
+  //proxy代理，是对一个对象基本语义的代理
+  //proxy的拦截函数，实际上是用来自定义代理对象本身的内部方法和行为的，而不是用来指定被代理对象的内部方法和行为的。
   const proxy = new Proxy(
     target,
     targetType === TargetType.COLLECTION ? collectionHandlers : baseHandlers

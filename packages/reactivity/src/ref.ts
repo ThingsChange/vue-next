@@ -92,11 +92,14 @@ function createRef(rawValue: unknown, shallow: boolean) {
   }
   return new RefImpl(rawValue, shallow)
 }
-
+/*
+* 1、proxy 不可以代理原始类型数据，要解决原始值响应式问题，引入包裹对象，ref；
+* 2、在对reactive生成的代理对象进行解构赋值的时候，因为解构赋值得到的就是一个普通对象，会造成响应式丢失，因此实现了toRef,toRefs,proxyRefs等函数
+* dep 用于存储依赖  的副作用函数
+* */
 class RefImpl<T> {
   private _value: T
   private _rawValue: T
-
   public dep?: Dep = undefined
   public readonly __v_isRef = true
 
