@@ -306,7 +306,7 @@ export function trigger(
     })
   } else {
     // schedule runs for SET | ADD | DELETE
-    //如果key值存在，那么应该是设置，新增，或者删除操作，我们只需要收集这个key值对应的dep的
+    //如果key值存在，那么应该是设置，新增，或者删除操作，我们先收集这个key值对应的dep
     if (key !== void 0) {
       deps.push(depsMap.get(key))
     }

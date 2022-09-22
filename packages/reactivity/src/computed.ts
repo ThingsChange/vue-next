@@ -55,7 +55,7 @@ export class ComputedRefImpl<T> {
       // 而该函数被执行，是因为该副作用对象依赖于他的get函数中的依赖项 ，依赖项（data.count）发生变化， 触发更新遍历依赖项（data.count）的deps执行的effect.run时，把dirty设置成true
       if (!this._dirty) {
         this._dirty = true
-        triggerRefValue(this) //此处通知r该计算属性的dps 如 ender的effect 执行，执行的时候重新收集依赖属性，就会发现此时dirty为true
+        triggerRefValue(this) //此处通知r该计算属性的dps 如 render的effect 执行，执行的时候重新收集依赖属性，就会发现此时dirty为true
       }
     })
     this.effect.computed = this

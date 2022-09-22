@@ -243,7 +243,7 @@ function doWatch(
       getter = () =>
         callWithErrorHandling(source, instance, ErrorCodes.WATCH_GETTER)
     } else {
-      // no cb -> simple effect
+      // no cb -> simple effect ,watchEffect
       //没有callback 还是直接运行source函数
       getter = () => {
         if (instance && instance.isUnmounted) {
@@ -411,7 +411,7 @@ function doWatch(
     effect.run()
   }
 
-  //返回侦听函数  跟vue的结构一模一样
+  //返回unWatch函数  跟vue的结构一模一样
   return () => {
     effect.stop()
     if (instance && instance.scope) {
