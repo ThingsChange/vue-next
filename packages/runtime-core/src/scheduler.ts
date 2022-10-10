@@ -5,6 +5,7 @@ import { warn } from './warning'
 
 export interface SchedulerJob extends Function {
   id?: number
+  pre?: boolean
   active?: boolean
   computed?: boolean
   /**
@@ -40,18 +41,12 @@ let isFlushPending = false
 const queue: SchedulerJob[] = []
 let flushIndex = 0
 
-const pendingPreFlushCbs: SchedulerJob[] = []
-let activePreFlushCbs: SchedulerJob[] | null = null
-let preFlushIndex = 0
-
 const pendingPostFlushCbs: SchedulerJob[] = []
 let activePostFlushCbs: SchedulerJob[] | null = null
 let postFlushIndex = 0
 
-const resolvedPromise: Promise<any> = Promise.resolve()
+const resolvedPromise = /*#__PURE__*/ Promise.resolve() as Promise<any>
 let currentFlushPromise: Promise<void> | null = null
-
-let currentPreFlushParentJob: SchedulerJob | null = null
 
 const RECURSION_LIMIT = 100
 type CountMap = Map<SchedulerJob, number>
@@ -95,12 +90,11 @@ export function queueJob(job: SchedulerJob) {
   //在清空过任务并且当前加入的函数允许递归，则查找从当前清空的下一个开始，不然就从正在清空的下标开始，包含当前正在清空的job
   //! 如果允许递归，则当前正在执行的job,不加入去重判断
   if (
-    (!queue.length ||
-      !queue.includes(
-        job,
-        isFlushing && job.allowRecurse ? flushIndex + 1 : flushIndex
-      )) &&
-    job !== currentPreFlushParentJob
+    !queue.length ||
+    !queue.includes(
+      job,
+      isFlushing && job.allowRecurse ? flushIndex + 1 : flushIndex
+    )
   ) {
     if (job.id == null) {
       queue.push(job)
@@ -127,70 +121,45 @@ export function invalidateJob(job: SchedulerJob) {
     queue.splice(i, 1)
   }
 }
-//Pre| Post 类型任务入队
-function queueCb(
-  cb: SchedulerJobs,
-  activeQueue: SchedulerJob[] | null,
-  pendingQueue: SchedulerJob[],
-  index: number
-) {
+//Post 类型任务入队
+export function queuePostFlushCb(cb: SchedulerJobs) {
   if (!isArray(cb)) {
     if (
-      !activeQueue ||
-      !activeQueue.includes(cb, cb.allowRecurse ? index + 1 : index)
+      !activePostFlushCbs ||
+      !activePostFlushCbs.includes(
+        cb,
+        cb.allowRecurse ? postFlushIndex + 1 : postFlushIndex
+      )
     ) {
-      pendingQueue.push(cb)
+      pendingPostFlushCbs.push(cb)
     }
   } else {
     // if cb is an array, it is a component lifecycle hook which can only be
     // triggered by a job, which is already deduped in the main queue, so
     // we can skip duplicate check here to improve perf
-    pendingQueue.push(...cb)
+    pendingPostFlushCbs.push(...cb)
   }
   queueFlush()
 }
 
-export function queuePreFlushCb(cb: SchedulerJob) {
-  queueCb(cb, activePreFlushCbs, pendingPreFlushCbs, preFlushIndex)
-}
-
-export function queuePostFlushCb(cb: SchedulerJobs) {
-  queueCb(cb, activePostFlushCbs, pendingPostFlushCbs, postFlushIndex)
-}
-
 export function flushPreFlushCbs(
   seen?: CountMap,
-  parentJob: SchedulerJob | null = null
+  // if currently flushing, skip the current job itself
+  i = isFlushing ? flushIndex + 1 : 0
 ) {
-  if (pendingPreFlushCbs.length) {
-    currentPreFlushParentJob = parentJob
-    //对将要执行的pre类型的回调函数进行去重处理
-    activePreFlushCbs = [...new Set(pendingPreFlushCbs)]
-    pendingPreFlushCbs.length = 0
-    if (__DEV__) {
-      seen = seen || new Map()
-    }
-    for (
-      preFlushIndex = 0;
-      preFlushIndex < activePreFlushCbs.length;
-      preFlushIndex++
-    ) {
-      if (
-        __DEV__ &&
-        checkRecursiveUpdates(seen!, activePreFlushCbs[preFlushIndex])
-      ) {
+  if (__DEV__) {
+    seen = seen || new Map()
+  }
+  for (; i < queue.length; i++) {
+    const cb = queue[i]
+    if (cb && cb.pre) {
+      if (__DEV__ && checkRecursiveUpdates(seen!, cb)) {
         continue
       }
-      //拎出来执行
-      activePreFlushCbs[preFlushIndex]()
+      queue.splice(i, 1)
+      i--
+      cb()
     }
-    //清空要执行的pre回调，归位pre回调执行的下标，清空当前pre回调队列的父JOB
-    activePreFlushCbs = null
-    preFlushIndex = 0
-    currentPreFlushParentJob = null
-    // recursively flush until it drains
-    //重复执行，直至pre回调队列为空。因为在你执行的过程中可能会有插入的Pre回调函数
-    flushPreFlushCbs(seen, parentJob)
   }
 }
 
@@ -234,6 +203,15 @@ export function flushPostFlushCbs(seen?: CountMap) {
 const getId = (job: SchedulerJob): number =>
   job.id == null ? Infinity : job.id
 
+const comparator = (a: SchedulerJob, b: SchedulerJob): number => {
+  const diff = getId(a) - getId(b)
+  if (diff === 0) {
+    if (a.pre && !b.pre) return -1
+    if (b.pre && !a.pre) return 1
+  }
+  return diff
+}
+
 /*
 *                  组件数据更新                 用户操作等原因
 *                  组件数据更新                 引起的组件数据更新
@@ -251,8 +229,6 @@ function flushJobs(seen?: CountMap) {
     seen = seen || new Map()
   }
 
-  flushPreFlushCbs(seen)
-
   // Sort queue before flush.
   // This ensures that:
   // 1. Components are updated from parent to child. (because parent is always
@@ -262,7 +238,7 @@ function flushJobs(seen?: CountMap) {
   //    its update can be skipped.
   //1、父组件更细会可能会导致子组件的更新，所以先更新父组件，避免重复更新子组件。所以要进行JOB排序
   //2、如果在啊父组件更新的时候，子组件并没有挂载（被卸载），那么子组件的更新 可以被忽略
-  queue.sort((a, b) => getId(a) - getId(b))
+  queue.sort(comparator)
 
   // conditional usage of checkRecursiveUpdate must be determined out of
   // try ... catch block since Rollup by default de-optimizes treeshaking
@@ -298,11 +274,7 @@ function flushJobs(seen?: CountMap) {
     currentFlushPromise = null
     // some postFlushCb queued jobs!
     // keep flushing until it drains.
-    if (
-      queue.length ||
-      pendingPreFlushCbs.length ||
-      pendingPostFlushCbs.length
-    ) {
+    if (queue.length || pendingPostFlushCbs.length) {
       //有任何的回调函数，就接着递归呗
       flushJobs(seen)
     }

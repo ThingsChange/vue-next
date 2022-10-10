@@ -30,11 +30,17 @@ import {
   makeMap
 } from '@vue/shared'
 import { isRef } from './ref'
+import { warn } from './warning'
 
 const isNonTrackableKeys = /*#__PURE__*/ makeMap(`__proto__,__v_isRef,__isVue`)
 
 const builtInSymbols = new Set(
+  /*#__PURE__*/
   Object.getOwnPropertyNames(Symbol)
+    // ios10.x Object.getOwnPropertyNames(Symbol) can enumerate 'arguments' and 'caller'
+    // but accessing them on Symbol leads to TypeError because Symbol is a strict mode
+    // function
+    .filter(key => key !== 'arguments' && key !== 'caller')
     .map(key => (Symbol as any)[key])
     .filter(isSymbol)
 )
@@ -156,10 +162,10 @@ function createGetter(isReadonly = false, shallow = false) {
     }
 
     if (isRef(res)) {
-      // ref unwrapping - does not apply for Array + integer key.
+      // ref unwrapping - skip unwrap for Array + integer key.
       //不是数组就自动展开ref isIntegerKey是判断是否是数组的String下标，因为在追踪的时候，追踪的是字符串类型的。
-      const shouldUnwrap = !targetIsArray || !isIntegerKey(key)
-      return shouldUnwrap ? res.value : res
+      //此处以前的写法很反人类
+      return targetIsArray && isIntegerKey(key) ? res : res.value
     }
 
     if (isObject(res)) {
@@ -188,12 +194,11 @@ function createSetter(shallow = false) {
     if (isReadonly(oldValue) && isRef(oldValue) && !isRef(value)) {
       return false
     }
-    //非浅层   且  新值是 非只读的响应式   即是深层次监听
-    if (!shallow && !isReadonly(value)) {
+    if (!shallow) {
       // 如果value是一个响应式数据，并且在深层监听模式下，那么就先求出value的真实值，避免数据污染
-      if (!isShallow(value)) {
-        value = toRaw(value)
+      if (!isShallow(value) && !isReadonly(value)) {
         oldValue = toRaw(oldValue)
+        value = toRaw(value)
       }
       //对象不是数组 ，并且旧值是Ref儿新值不是Ref，让新值赋值给ref.value，ref决定trigger
       if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
@@ -260,7 +265,7 @@ export const readonlyHandlers: ProxyHandler<object> = {
   get: readonlyGet,
   set(target, key) {
     if (__DEV__) {
-      console.warn(
+      warn(
         `Set operation on key "${String(key)}" failed: target is readonly.`,
         target
       )
@@ -269,7 +274,7 @@ export const readonlyHandlers: ProxyHandler<object> = {
   },
   deleteProperty(target, key) {
     if (__DEV__) {
-      console.warn(
+      warn(
         `Delete operation on key "${String(key)}" failed: target is readonly.`,
         target
       )

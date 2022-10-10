@@ -70,6 +70,10 @@ export class ReactiveEffect<T = any> {
    * @internal
    */
   allowRecurse?: boolean
+  /**
+   * @internal
+   */
+  private deferStop?: boolean
 
   onStop?: () => void
   // dev only
@@ -137,11 +141,18 @@ export class ReactiveEffect<T = any> {
       activeEffect = this.parent
       shouldTrack = lastShouldTrack
       this.parent = undefined
+
+      if (this.deferStop) {
+        this.stop()
+      }
     }
   }
 
   stop() {
-    if (this.active) {
+    // stopped while running itself - defer the cleanup
+    if (activeEffect === this) {
+      this.deferStop = true
+    } else if (this.active) {
       cleanupEffect(this)
       if (this.onStop) {
         this.onStop()
@@ -266,14 +277,10 @@ export function trackEffects(
     // 当前激活的 effect 收集 dep 集合作为依赖
     activeEffect!.deps.push(dep)
     if (__DEV__ && activeEffect!.onTrack) {
-      activeEffect!.onTrack(
-        Object.assign(
-          {
-            effect: activeEffect!
-          },
-          debuggerEventExtraInfo
-        )
-      )
+      activeEffect!.onTrack({
+        effect: activeEffect!,
+        ...debuggerEventExtraInfo!
+      })
     }
   }
 }
@@ -386,18 +393,33 @@ export function triggerEffects(
   // spread into array for stabilization
   // 循环遍历 dep，去取每个依赖的副作用对象 ReactiveEffect
   //dep可能传过来的是一个set集合<reactiveEffect>
-  for (const effect of isArray(dep) ? dep : [...dep]) {
-    // 默认不允许递归，即当前 effect 副作用函数，如果递归触发当前 effect，会被忽略
-    if (effect !== activeEffect || effect.allowRecurse) {
-      if (__DEV__ && effect.onTrigger) {
-        effect.onTrigger(extend({ effect }, debuggerEventExtraInfo))
-      }
+  const effects = isArray(dep) ? dep : [...dep]
+  for (const effect of effects) {
+    if (effect.computed) {
+      triggerEffect(effect, debuggerEventExtraInfo)
+    }
+  }
+  for (const effect of effects) {
+    if (!effect.computed) {
+      triggerEffect(effect, debuggerEventExtraInfo)
+    }
+  }
+}
+
+function triggerEffect(
+  effect: ReactiveEffect,
+  debuggerEventExtraInfo?: DebuggerEventExtraInfo
+) {
+  // 默认不允许递归，即当前 effect 副作用函数，如果递归触发当前 effect，会被忽略
+  if (effect !== activeEffect || effect.allowRecurse) {
+    if (__DEV__ && effect.onTrigger) {
+      effect.onTrigger(extend({ effect }, debuggerEventExtraInfo))
+    }
       // effect.scheduler可以先不管，ref 和 reactive 都没有
-      if (effect.scheduler) {
-        effect.scheduler()
-      } else {
+    if (effect.scheduler) {
+      effect.scheduler()
+    } else {
         effect.run()  // 执行 effect 的副作用函数
-      }
     }
   }
 }

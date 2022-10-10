@@ -324,7 +324,6 @@ function baseCreateRenderer(
     parentNode: hostParentNode,
     nextSibling: hostNextSibling,
     setScopeId: hostSetScopeId = NOOP,
-    cloneNode: hostCloneNode,
     insertStaticContent: hostInsertStaticContent
   } = options
 
@@ -608,83 +607,72 @@ function baseCreateRenderer(
   ) => {
     let el: RendererElement
     let vnodeHook: VNodeHook | undefined | null
-    const { type, props, shapeFlag, transition, patchFlag, dirs } = vnode
-    if (
-      !__DEV__ &&
-      vnode.el &&
-      hostCloneNode !== undefined &&
-      patchFlag === PatchFlags.HOISTED
-    ) {
-      // If a vnode has non-null el, it means it's being reused.
-      // Only static vnodes can be reused, so its mounted DOM nodes should be
-      // exactly the same, and we can simply do a clone here.
-      // only do this in production since cloned trees cannot be HMR updated.
-      el = vnode.el = hostCloneNode(vnode.el)
-    } else {
-      el = vnode.el = hostCreateElement(
-        vnode.type as string,
-        isSVG,
-        props && props.is,
-        props
-      )
+    const { type, props, shapeFlag, transition, dirs } = vnode
 
-      // mount children first, since some props may rely on child content
-      // being already rendered, e.g. `<select value>`
+    el = vnode.el = hostCreateElement(
+      vnode.type as string,
+      isSVG,
+      props && props.is,
+      props
+    )
+
+    // mount children first, since some props may rely on child content
+    // being already rendered, e.g. `<select value>`
       // 优先挂载子代节点，因为有些属性依赖子代节点内容的，必须在子代节点渲染出来之后才可用，比如`<select value>`
-      if (shapeFlag & ShapeFlags.TEXT_CHILDREN) {
-        hostSetElementText(el, vnode.children as string)
-      } else if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
-        mountChildren(
-          vnode.children as VNodeArrayChildren,
-          el,
-          null,
-          parentComponent,
-          parentSuspense,
-          isSVG && type !== 'foreignObject',
-          slotScopeIds,
-          optimized
-        )
-      }
-
-      if (dirs) {
-        invokeDirectiveHook(vnode, null, parentComponent, 'created')
-      }
-      // props
-      if (props) {
-        for (const key in props) {
-          if (key !== 'value' && !isReservedProp(key)) {
-            hostPatchProp(
-              el,
-              key,
-              null,
-              props[key],
-              isSVG,
-              vnode.children as VNode[],
-              parentComponent,
-              parentSuspense,
-              unmountChildren
-            )
-          }
-        }
-        /**
-         * Special case for setting value on DOM elements:
-         * - it can be order-sensitive (e.g. should be set *after* min/max, #2325, #4024)
-         * - it needs to be forced (#1471)
-         * #2353 proposes adding another renderer option to configure this, but
-         * the properties affects are so finite it is worth special casing it
-         * here to reduce the complexity. (Special casing it also should not
-         * affect non-DOM renderers)
-         */
-        if ('value' in props) {
-          hostPatchProp(el, 'value', null, props.value)
-        }
-        if ((vnodeHook = props.onVnodeBeforeMount)) {
-          invokeVNodeHook(vnodeHook, parentComponent, vnode)
-        }
-      }
-      // scopeId
-      setScopeId(el, vnode, vnode.scopeId, slotScopeIds, parentComponent)
+    if (shapeFlag & ShapeFlags.TEXT_CHILDREN) {
+      hostSetElementText(el, vnode.children as string)
+    } else if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
+      mountChildren(
+        vnode.children as VNodeArrayChildren,
+        el,
+        null,
+        parentComponent,
+        parentSuspense,
+        isSVG && type !== 'foreignObject',
+        slotScopeIds,
+        optimized
+      )
     }
+
+    if (dirs) {
+      invokeDirectiveHook(vnode, null, parentComponent, 'created')
+    }
+    // props
+    if (props) {
+      for (const key in props) {
+        if (key !== 'value' && !isReservedProp(key)) {
+          hostPatchProp(
+            el,
+            key,
+            null,
+            props[key],
+            isSVG,
+            vnode.children as VNode[],
+            parentComponent,
+            parentSuspense,
+            unmountChildren
+          )
+        }
+      }
+      /**
+       * Special case for setting value on DOM elements:
+       * - it can be order-sensitive (e.g. should be set *after* min/max, #2325, #4024)
+       * - it needs to be forced (#1471)
+       * #2353 proposes adding another renderer option to configure this, but
+       * the properties affects are so finite it is worth special casing it
+       * here to reduce the complexity. (Special casing it also should not
+       * affect non-DOM renderers)
+       */
+      if ('value' in props) {
+        hostPatchProp(el, 'value', null, props.value)
+      }
+      if ((vnodeHook = props.onVnodeBeforeMount)) {
+        invokeVNodeHook(vnodeHook, parentComponent, vnode)
+      }
+    }
+    // scopeId
+    setScopeId(el, vnode, vnode.scopeId, slotScopeIds, parentComponent)
+
     if (__DEV__ || __FEATURE_PROD_DEVTOOLS__) {
       Object.defineProperty(el, '__vnode', {
         value: vnode,
@@ -1029,6 +1017,24 @@ function baseCreateRenderer(
     isSVG: boolean
   ) => {
     if (oldProps !== newProps) {
+      if (oldProps !== EMPTY_OBJ) {
+        //遍历旧属性集，如果key值既不是内置属性，有在新属性集中不存在，说明这个属性已经失效了，需要将该属性从dom中移除
+        for (const key in oldProps) {
+          if (!isReservedProp(key) && !(key in newProps)) {
+            hostPatchProp(
+              el,
+              key,
+              oldProps[key],
+              null,
+              isSVG,
+              vnode.children as VNode[],
+              parentComponent,
+              parentSuspense,
+              unmountChildren
+            )
+          }
+        }
+      }
       // 遍历新属性集，准备将各新属性更新到实际的dom元素上
       for (const key in newProps) {
         // empty string is not valid prop
@@ -1050,24 +1056,6 @@ function baseCreateRenderer(
             parentSuspense,
             unmountChildren
           )
-        }
-      }
-      if (oldProps !== EMPTY_OBJ) {
-        for (const key in oldProps) {
-          //遍历旧属性集，如果key值既不是内置属性，有在新属性集中不存在，说明这个属性已经失效了，需要将该属性从dom中移除
-          if (!isReservedProp(key) && !(key in newProps)) {
-            hostPatchProp(
-              el,
-              key,
-              oldProps[key],
-              null,
-              isSVG,
-              vnode.children as VNode[],
-              parentComponent,
-              parentSuspense,
-              unmountChildren
-            )
-          }
         }
       }
       if ('value' in newProps) {
@@ -1098,8 +1086,12 @@ function baseCreateRenderer(
 
     let { patchFlag, dynamicChildren, slotScopeIds: fragmentSlotScopeIds } = n2
 
-    if (__DEV__ && isHmrUpdating) {
-      // HMR updated, force full diff
+    if (
+      __DEV__ &&
+      // #5523 dev root fragment may inherit directives
+      (isHmrUpdating || patchFlag & PatchFlags.DEV_ROOT_FRAGMENT)
+    ) {
+      // HMR updated / Dev root fragment (w/ comments), force full diff
       patchFlag = 0
       optimized = false
       dynamicChildren = null
@@ -1336,7 +1328,6 @@ function baseCreateRenderer(
       }
     } else {
       // no update needed. just copy over properties
-      n2.component = n1.component
       n2.el = n1.el
       instance.vnode = n2
     }
@@ -1474,7 +1465,12 @@ function baseCreateRenderer(
         // activated hook for keep-alive roots.
         // #1742 activated hook must be accessed after first render
         // since the hook may be injected by a child keep-alive
-        if (initialVNode.shapeFlag & ShapeFlags.COMPONENT_SHOULD_KEEP_ALIVE) {
+        if (
+          initialVNode.shapeFlag & ShapeFlags.COMPONENT_SHOULD_KEEP_ALIVE ||
+          (parent &&
+            isAsyncWrapper(parent.vnode) &&
+            parent.vnode.shapeFlag & ShapeFlags.COMPONENT_SHOULD_KEEP_ALIVE)
+        ) {
           instance.a && queuePostRenderEffect(instance.a, parentSuspense)
           if (
             __COMPAT__ &&
@@ -1610,11 +1606,11 @@ function baseCreateRenderer(
     // 创建渲染effect，并将其挂载到组件实例上作为更新执行器
     const effect = (instance.effect = new ReactiveEffect(
       componentUpdateFn,
-      () => queueJob(instance.update),
+      () => queueJob(update),
       instance.scope // track it in component's effect scope
     ))
 
-    const update = (instance.update = effect.run.bind(effect) as SchedulerJob)
+    const update: SchedulerJob = (instance.update = () => effect.run())
     update.id = instance.uid
     // allowRecurse
     // #1801, #2043 component render effects should allow recursive updates
@@ -1627,7 +1623,6 @@ function baseCreateRenderer(
       effect.onTrigger = instance.rtg
         ? e => invokeArrayFns(instance.rtg!, e)
         : void 0
-      // @ts-ignore (for scheduler)
       update.ownerInstance = instance
     }
 
@@ -1668,7 +1663,7 @@ function baseCreateRenderer(
     pauseTracking()
     // props update may have triggered pre-flush watchers.
     // flush them before the render update.
-    flushPreFlushCbs(undefined, instance.update)
+    flushPreFlushCbs()
     resetTracking()
   }
 
@@ -2361,7 +2356,23 @@ function baseCreateRenderer(
   const remove: RemoveFn = vnode => {
     const { type, el, anchor, transition } = vnode
     if (type === Fragment) {
-      removeFragment(el!, anchor!)
+      if (
+        __DEV__ &&
+        vnode.patchFlag > 0 &&
+        vnode.patchFlag & PatchFlags.DEV_ROOT_FRAGMENT &&
+        transition &&
+        !transition.persisted
+      ) {
+        ;(vnode.children as VNode[]).forEach(child => {
+          if (child.type === Comment) {
+            hostRemove(child.el!)
+          } else {
+            remove(child)
+          }
+        })
+      } else {
+        removeFragment(el!, anchor!)
+      }
       return
     }
 
@@ -2519,6 +2530,7 @@ function baseCreateRenderer(
     //在这里整个vnode tree 全部挂载完毕后，会批量执行在渲染过程中产生的一些钩子，比如后置的生命周期，onMounted会在vNode整体打
     //补丁到真实dom后，批量进行执行，
     //清空post队列
+    flushPreFlushCbs()
     flushPostFlushCbs()
     //挂在后将vNnod缓存起来
     container._vnode = vnode
