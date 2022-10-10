@@ -225,7 +225,7 @@ export interface ComponentInternalInstance {
   next: VNode | null
   /**
    * Root vnode of this component's own vdom tree
-   * 组件渲染的子树
+   * 组件渲染的子树，组件 模板里的真实DOM vNode
    */
   subTree: VNode
   /**
@@ -653,6 +653,7 @@ function setupStatefulComponent(
     }
   }
   // 0. create render proxy property access cache
+  //? 这里设置一个读取方法代理，代表你的这个属性属于谁，data?setupState?props?下次就可以直接去哪儿读取了
   instance.accessCache = Object.create(null)
   // 1. create public instance / render proxy
   // also mark it raw so it's never observed
@@ -863,14 +864,14 @@ export function finishComponentSetup(
     if (!compile && Component.template) {
       warn(
         `Component provided template option but ` +
-          `runtime compilation is not supported in this build of Vue.` +
-          (__ESM_BUNDLER__
-            ? ` Configure your bundler to alias "vue" to "vue/dist/vue.esm-bundler.js".`
-            : __ESM_BROWSER__
+        `runtime compilation is not supported in this build of Vue.` +
+        (__ESM_BUNDLER__
+          ? ` Configure your bundler to alias "vue" to "vue/dist/vue.esm-bundler.js".`
+          : __ESM_BROWSER__
             ? ` Use "vue.esm-browser.js" instead.`
             : __GLOBAL__
-            ? ` Use "vue.global.js" instead.`
-            : ``) /* should not happen */
+              ? ` Use "vue.global.js" instead.`
+              : ``) /* should not happen */
       )
     } else {
       warn(`Component is missing template or render function.`)

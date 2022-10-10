@@ -389,6 +389,7 @@ function baseCreateRenderer(
         )
         break
       default:
+        // 普通元素节点
         if (shapeFlag & ShapeFlags.ELEMENT) {
           processElement(
             n1,
@@ -401,6 +402,7 @@ function baseCreateRenderer(
             slotScopeIds,
             optimized
           )
+        //  自定义组件
         } else if (shapeFlag & ShapeFlags.COMPONENT) {
           processComponent(
             n1,
@@ -413,6 +415,7 @@ function baseCreateRenderer(
             slotScopeIds,
             optimized
           )
+        //  传送门
         } else if (shapeFlag & ShapeFlags.TELEPORT) {
           ;(type as typeof TeleportImpl).process(
             n1 as TeleportVNode,
@@ -426,6 +429,7 @@ function baseCreateRenderer(
             optimized,
             internals
           )
+        //  异步组件
         } else if (__FEATURE_SUSPENSE__ && shapeFlag & ShapeFlags.SUSPENSE) {
           ;(type as typeof SuspenseImpl).process(
             n1,
@@ -804,13 +808,16 @@ function baseCreateRenderer(
     let vnodeHook: VNodeHook | undefined | null
 
     // disable recurse in beforeUpdate hooks
+    //在执行beforeUpdate hooks的过程中不允许effect《effect:渲染ReactiveEffect》本身递归
     parentComponent && toggleRecurse(parentComponent, false)
     if ((vnodeHook = newProps.onVnodeBeforeUpdate)) {
       invokeVNodeHook(vnodeHook, parentComponent, n2, n1)
     }
+    //执行beforeUpdate事件
     if (dirs) {
       invokeDirectiveHook(n2, n1, parentComponent, 'beforeUpdate')
     }
+    //复原effect的递归标识
     parentComponent && toggleRecurse(parentComponent, true)
 
     if (__DEV__ && isHmrUpdating) {
@@ -892,7 +899,7 @@ function baseCreateRenderer(
         // faster iteration.
         // Note dynamic keys like :[foo]="bar" will cause this optimization to
         // bail out and go through a full diff because we need to unset the old key
-        //props表示除了class 、styles以外的常规动态属性，这些属性在编译阶段已经被手机到了dynamicProps中
+        //props表示除了class 、styles以外的常规动态属性，这些属性在编译阶段已经被收集到了dynamicProps中
         //在运行时只需要对dynamicProps中记录的属性进行靶向更新即可。
         if (patchFlag & PatchFlags.PROPS) {
           // if the flag is present then dynamicProps must be non-null
@@ -919,7 +926,7 @@ function baseCreateRenderer(
         }
       }
 
-      // text 节点为冬天文本节点，直接更新就行
+      // text 节点为动态文本节点，直接更新就行
       // This flag is matched when the element has only dynamic text children.
       if (patchFlag & PatchFlags.TEXT) {
         if (n1.children !== n2.children) {
@@ -1216,7 +1223,7 @@ function baseCreateRenderer(
 /*
 *
 * 1、创建组件实例：我们定义的组件实际上只是一个option Object，因此我们需要为其创建一个实例上下文作为整个组件的局部宿主环境
-*2、挂载setup信息：setup就是我们在组件中定义的setup函数，用来安装组件所需的运行时信息，比如我们自定义的响应式数据、各种钩子等
+*2、初始化组件(setup&& 执行setup)信息：setup就是我们在组件中定义的setup函数，用来安装组件所需的运行时信息，比如我们自定义的响应式数据、各种钩子等
 *3、生成渲染副作用：渲染副作用就是我们在组件中定义的响应式数据收集的依赖之一，在首次组件挂载时渲染副作用被作为依赖进行收集，
 * 当我们改变响应式数据时，触发渲染副作用的重新执行完成re-render，从而达到数据驱动视图更新的目的。
 * 由此可见，创建渲染副作用其实是将渲染系统和响应式系统进行桥接的关键所在
@@ -1235,7 +1242,7 @@ function baseCreateRenderer(
     // mounting
     const compatMountInstance =
       __COMPAT__ && initialVNode.isCompatRoot && initialVNode.component
-    // 创建组件vnode对应的组件实例
+    // ? 1、创建组件vnode对应的组件实例
     const instance: ComponentInternalInstance =
       compatMountInstance ||
       (initialVNode.component = createComponentInstance(
@@ -1257,7 +1264,7 @@ function baseCreateRenderer(
     if (isKeepAlive(initialVNode)) {
       ;(instance.ctx as KeepAliveContext).renderer = internals
     }
-
+    //?2、组件属性、props、slots、声明周期等初始化，setup的执行或者vue2.x选项式API的初始化
     // resolve props and slots for setup context
     // 执行组件定义的setup函数并将必要的信息挂载到组件实例上
     if (!(__COMPAT__ && compatMountInstance)) {
@@ -1283,7 +1290,7 @@ function baseCreateRenderer(
       }
       return
     }
-    // 生成渲染副作用，创建渲染系统与响应式系统之间的联系
+    //?3、 生成渲染副作用，创建渲染系统与响应式系统之间的联系
     setupRenderEffect(
       instance,
       initialVNode,
@@ -1412,7 +1419,7 @@ function baseCreateRenderer(
           if (__DEV__) {
             startMeasure(instance, `render`)
           }
-          // 执行组件内部的render函数 (手写或template编译生成) 生成渲染vnode，渲染vnode就是组件实际要渲染出来的
+          // 执行组件上挂载的render函数 (setup生成的>render属性>template编译生成) 生成渲染vnode，渲染vnode就是组件实际要渲染出来的
           // 内容对应的vnode，并将渲染vnode存储到组件实例上
           // 注意：执行render函数会访问组件实例上的响应式数据，从而触发依赖收集，当前定义的renderEffect会被收集到依赖仓库
           // 当后续发生数据变化时，renderEffect则会被派发，触发re-render
@@ -2510,7 +2517,7 @@ function baseCreateRenderer(
       patch(container._vnode || null, vnode, container, null, null, null, isSVG)
     }
     //在这里整个vnode tree 全部挂载完毕后，会批量执行在渲染过程中产生的一些钩子，比如后置的生命周期，onMounted会在vNode整体打
-    //补丁到真是dom后，批量进行执行，
+    //补丁到真实dom后，批量进行执行，
     //清空post队列
     flushPostFlushCbs()
     //挂在后将vNnod缓存起来

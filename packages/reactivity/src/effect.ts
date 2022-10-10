@@ -56,7 +56,7 @@ export const MAP_KEY_ITERATE_KEY = Symbol(__DEV__ ? 'Map key iterate' : '')
 * 正在执行的副作用对象
 * */
 export class ReactiveEffect<T = any> {
-  //侦听是否可用，比如停止了？？
+  //ssr
   active = true
   deps: Dep[] = []
   parent: ReactiveEffect | undefined = undefined
@@ -87,6 +87,7 @@ export class ReactiveEffect<T = any> {
 
   run() {
     // 允许在非 active 状态且非调度执行情况，则直接执行原始函数 fn 并返回
+    //ssr渲染
     if (!this.active) {
       return this.fn()
     }

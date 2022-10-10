@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang='en'>
+
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <meta http-equiv='X-UA-Compatible' content='ie=edge'>
+  <title>Document</title>
+  <script src='../../packages/vue/dist/vue.global.js'></script>
+</head>
+
+<body>
+<div id='app'></div>
+<script>
+  const {
+    createApp,
+    reactive,
+    computed,
+    effect
+  } = Vue
+  const MyComponent = {
+    template: `
+      <button @click='addOneNum'>
+      123
+      </button>
+      <!--                <div v-for='item in state.arr'>{{item}}</div>-->
+      <div>{{ plusOne }}</div>
+    `,
+    setup() {
+      const data = reactive({ count: 0 })
+      const plusOne = computed(() => {
+        return data.count + 1
+      })
+      // let printCountPlus = effect(() => console.log(plusOne.value))
+      // data.count++
+
+      function addOneNum() {
+        data.count++
+        /*
+        * 1.state.a 自增  触发依赖他的副作用对象  len    computed.effect.schduler
+        * 2.设置computed设置为脏值，并触发计算属性的副作用对象执行（此处是render）
+        * 3.执行render，又会触发读取len的属性，所以再次执行 computed的get 属性函数
+        * 4、重新执行计算属性的函数，计算出现在的新值，并返回
+        * 5、render渲染完毕
+        * */
+      }
+
+      /*      effect(() => {
+              console.log('state change ', state.message)
+            })*/
+      /*      function click() {
+              state.message = state.message.split('').reverse().join('')
+            }*/
+      return {
+        plusOne,
+        addOneNum
+      }
+    }
+  }
+  createApp(MyComponent).mount('#app')
+</script>
+</body>
+
+</html>

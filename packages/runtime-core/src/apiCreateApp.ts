@@ -189,7 +189,7 @@ export function createAppAPI<HostElement>(
     const installedPlugins = new Set()
 
     let isMounted = false
-    //为应用上下文装载应用
+    //为应用上下文装载应用,这他么的才是真的好么
     const app: App = (context.app = {
       _uid: uid++,
       _component: rootComponent as ConcreteComponent,

@@ -77,6 +77,7 @@ export interface WatchOptions<Immediate = boolean> extends WatchOptionsBase {
 export type WatchStopHandle = () => void
 
 // Simple effect.
+//? watchEffect与watch相比：1.watch可以懒执行副作用  2 watch更加明确是有哪个状态触发侦听器执行   3 watch可以访问所侦听的状态前一个值和当前值
 export function watchEffect(
   effect: WatchEffect,
   options?: WatchOptionsBase
@@ -207,12 +208,8 @@ function doWatch(
   let getter: () => any
   let forceTrigger = false
   let isMultiSource = false
-  //?蓝色高亮
-  //*绿色高亮
-  //!红色高亮
-  // todo 橙色高亮
-  //  //灰色带删除线的注释
-  //!标准化source，组装成为getter函数，getter函数是最终被侦听的函数，即函数里面用到的响应式变量的改变，都会触发执行scheduler函数
+  //? 标准化source :source，为我们侦听的源；因为watch本身接受多种格式，比如，字符串，响应式对象（ref,reactive,computed）,函数（返回一个值），以及前面几种类型组成的数组结构，
+  //? 所以我们要对这些结构要统一入口，组装成为getter函数，getter函数也是生成响应式对象的fn函数，即函数里面用到的响应式变量的改变，都会触发执行scheduler函数
   if (isRef(source)) {
     getter = () => source.value //执行getter  就会读取ref.value  从而track收集依赖
     forceTrigger = isShallow(source)
@@ -220,7 +217,7 @@ function doWatch(
   } else if (isReactive(source)) {
     getter = () => source
     deep = true
-  //  侦听多个源，source为数组，标记当前侦听为多数据源isMultiSource = true
+  //*  侦听多个源，source为数组，依次尝试去触发他的读值操作，标记当前侦听为多数据源isMultiSource = true
   } else if (isArray(source)) {
     isMultiSource = true
     forceTrigger = source.some(isReactive)
@@ -244,7 +241,7 @@ function doWatch(
         callWithErrorHandling(source, instance, ErrorCodes.WATCH_GETTER)
     } else {
       // no cb -> simple effect ,watchEffect
-      //没有callback 还是直接运行source函数
+      //* 没有callback 还是直接运行source函数
       getter = () => {
         if (instance && instance.isUnmounted) {
           return
@@ -313,7 +310,7 @@ function doWatch(
     return NOOP
   }
 
-  //组装JOB函数，判断侦听的值是否有变化， 有变化则执行getter函数和cb回调
+  //? 组装JOB函数，判断侦听的值是否有变化， 有变化则执行getter函数和cb回调
   let oldValue = isMultiSource ? [] : INITIAL_WATCHER_VALUE
   const job: SchedulerJob = () => {
     //如果侦听已经停止，直接return

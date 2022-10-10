@@ -32,8 +32,9 @@ export interface SchedulerJob extends Function {
 }
 
 export type SchedulerJobs = SchedulerJob | SchedulerJob[]
-
+//清空回调函数正在执行中  标志正在执行队列
 let isFlushing = false
+//等待队列执行
 let isFlushPending = false
 
 const queue: SchedulerJob[] = []
@@ -90,6 +91,9 @@ export function queueJob(job: SchedulerJob) {
   // if the job is a watch() callback, the search will start with a +1 index to
   // allow it recursively trigger itself - it is the user's responsibility to
   // ensure it doesn't end up in an infinite loop.
+  // ? （队列为空或者队列里不包含当前job）&& 当前job不等于当前挂起的PreParentJob
+  //在清空过任务并且当前加入的函数允许递归，则查找从当前清空的下一个开始，不然就从正在清空的下标开始，包含当前正在清空的job
+  //! 如果允许递归，则当前正在执行的job,不加入去重判断
   if (
     (!queue.length ||
       !queue.includes(
@@ -106,7 +110,7 @@ export function queueJob(job: SchedulerJob) {
     queueFlush()
   }
 }
-
+// ? 控制任务队列的执行时机
 function queueFlush() {
   if (!isFlushing && !isFlushPending) {
     isFlushPending = true
@@ -114,15 +118,16 @@ function queueFlush() {
   }
 }
 //!队列JOB能被删除   删除时为了提升性能；  删除场景发生在组件更新时，删除的JOB就不在队列中了，能够被再次加入到队列中；
-// 如果子组件已经在队列中排序了，父组件更新的时候会递归更新子组件，所以子组件更新如果还没呗执行，那么就移除掉，因为父组件先更新，会带动子组件更新
+// 如果子组件已经在队列中排序了，父组件更新的时候会递归更新子组件，所以子组件更新如果还没呗执行，那么就移除掉，因为父组件先更新，会带动子组件更新，就别排队了
 //这样就避免了统一子组件被重复更新
+//目前仅用于组件深度更新时，组件更新时，先检查自己是否在队列中正在进行排队，如果是，那么就删除掉，直接执行，甭排了；
 export function invalidateJob(job: SchedulerJob) {
   const i = queue.indexOf(job)
   if (i > flushIndex) {
     queue.splice(i, 1)
   }
 }
-//给回调函数排队
+//Pre| Post 类型任务入队
 function queueCb(
   cb: SchedulerJobs,
   activeQueue: SchedulerJob[] | null,
@@ -336,5 +341,5 @@ function checkRecursiveUpdates(seen: CountMap, fn: SchedulerJob) {
 * 先进先出              允许插队，按 id 从小到大执行              允许插队，按 id 从小到大执行
 * 不需要删除           Job可以删除 Job                                 不需要删除 Job
 * 不需要失效 Job    Job 会失效                                         不需要失效 Job
-* 允许递                  归允许递归                                         允许递归
+* 允许递归              允许递归                                         允许递归
 * */
