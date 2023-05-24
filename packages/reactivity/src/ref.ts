@@ -6,12 +6,20 @@ import {
 } from './effect'
 import { TrackOpTypes, TriggerOpTypes } from './operations'
 import { isArray, hasChanged, IfAny } from '@vue/shared'
-import { isProxy, toRaw, isReactive, toReactive } from './reactive'
+import {
+  isProxy,
+  toRaw,
+  isReactive,
+  toReactive,
+  isReadonly,
+  isShallow
+} from './reactive'
 import type { ShallowReactiveMarker } from './reactive'
 import { CollectionTypes } from './collectionHandlers'
 import { createDep, Dep } from './dep'
 
 declare const RefSymbol: unique symbol
+export declare const RawSymbol: unique symbol
 
 export interface Ref<T = any> {
   value: T
@@ -92,11 +100,14 @@ function createRef(rawValue: unknown, shallow: boolean) {
   }
   return new RefImpl(rawValue, shallow)
 }
-
+/*
+* 1、proxy 不可以代理原始类型数据，要解决原始值响应式问题，引入包裹对象，ref；
+* 2、在对reactive生成的代理对象进行解构赋值的时候，因为解构赋值得到的就是一个普通对象，会造成响应式丢失，因此实现了toRef,toRefs,proxyRefs等函数
+* dep 用于存储依赖  的副作用函数
+* */
 class RefImpl<T> {
   private _value: T
   private _rawValue: T
-
   public dep?: Dep = undefined
   public readonly __v_isRef = true
 
@@ -111,10 +122,12 @@ class RefImpl<T> {
   }
 
   set value(newVal) {
-    newVal = this.__v_isShallow ? newVal : toRaw(newVal)
+    const useDirectValue =
+      this.__v_isShallow || isShallow(newVal) || isReadonly(newVal)
+    newVal = useDirectValue ? newVal : toRaw(newVal)
     if (hasChanged(newVal, this._rawValue)) {
       this._rawValue = newVal
-      this._value = this.__v_isShallow ? newVal : toReactive(newVal)
+      this._value = useDirectValue ? newVal : toReactive(newVal)
       triggerRefValue(this, newVal)
     }
   }
@@ -291,6 +304,7 @@ export type UnwrapRefSimple<T> = T extends
   | BaseTypes
   | Ref
   | RefUnwrapBailTypes[keyof RefUnwrapBailTypes]
+  | { [RawSymbol]?: true }
   ? T
   : T extends Array<any>
   ? { [K in keyof T]: UnwrapRefSimple<T[K]> }

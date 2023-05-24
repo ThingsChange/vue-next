@@ -11,7 +11,7 @@ import {
   shallowCollectionHandlers,
   shallowReadonlyCollectionHandlers
 } from './collectionHandlers'
-import { UnwrapRefSimple, Ref } from './ref'
+import type { UnwrapRefSimple, Ref, RawSymbol } from './ref'
 
 export const enum ReactiveFlags {
   SKIP = '__v_skip',
@@ -193,7 +193,7 @@ function createReactiveObject(
   }
   // target is already a Proxy, return it.
   // exception: calling readonly() on a reactive object
-  //  如果target本身被代理过，并且此次调用使用readOnly（target）来生成只读的响应式数据
+  //  如果target是代理对象，直接返回该代理对象；只有一个例外，那就是此次调用使用readOnly（target）来生成只读的响应式数据
   if (
     target[ReactiveFlags.RAW] &&
     !(isReadonly && target[ReactiveFlags.IS_REACTIVE])
@@ -205,11 +205,13 @@ function createReactiveObject(
   if (existingProxy) {
     return existingProxy
   }
-  // only a whitelist of value types can be observed.
+  // only specific value types can be observed.
   const targetType = getTargetType(target)
   if (targetType === TargetType.INVALID) {
     return target
   }
+  //proxy代理，是对一个对象基本语义的代理
+  //proxy的拦截函数，实际上是用来自定义代理对象本身的内部方法和行为的，而不是用来指定被代理对象的内部方法和行为的。
   const proxy = new Proxy(
     target,
     targetType === TargetType.COLLECTION ? collectionHandlers : baseHandlers
@@ -242,7 +244,9 @@ export function toRaw<T>(observed: T): T {
   return raw ? toRaw(raw) : observed
 }
 
-export function markRaw<T extends object>(value: T): T {
+export function markRaw<T extends object>(
+  value: T
+): T & { [RawSymbol]?: true } {
   //  markRaw - 添加不可转为响应式数据的标记
   def(value, ReactiveFlags.SKIP, true)
   return value

@@ -21,7 +21,8 @@ const targetMap = new WeakMap<any, KeyToDepMap>()
 // The number of effects currently being tracked recursively.
 //表示递归嵌套执行  effect 函数的深度，最大深度为30取决于位运算，带符号位运算超过30则溢出
 let effectTrackDepth = 0
-//用于标识依赖收集的状态
+
+//trackOpBit 代表当前操作的位，它是由effect嵌套深度所决定的
 export let trackOpBit = 1
 
 /**
@@ -52,10 +53,10 @@ export let activeEffect: ReactiveEffect | undefined
 export const ITERATE_KEY = Symbol(__DEV__ ? 'iterate' : '')
 export const MAP_KEY_ITERATE_KEY = Symbol(__DEV__ ? 'Map key iterate' : '')
 /*
-* 副作用对象
+* 正在执行的副作用对象
 * */
 export class ReactiveEffect<T = any> {
-  //侦听是否可用，比如停止了？？
+  //ssr
   active = true
   deps: Dep[] = []
   parent: ReactiveEffect | undefined = undefined
@@ -69,6 +70,10 @@ export class ReactiveEffect<T = any> {
    * @internal
    */
   allowRecurse?: boolean
+  /**
+   * @internal
+   */
+  private deferStop?: boolean
 
   onStop?: () => void
   // dev only
@@ -86,6 +91,7 @@ export class ReactiveEffect<T = any> {
 
   run() {
     // 允许在非 active 状态且非调度执行情况，则直接执行原始函数 fn 并返回
+    //ssr渲染
     if (!this.active) {
       return this.fn()
     }
@@ -115,6 +121,7 @@ export class ReactiveEffect<T = any> {
       trackOpBit = 1 << ++effectTrackDepth
         //执行副作用函数前，给 ReactiveEffect 依赖的响应式变量，w标识位,wastracked
         // 超过 maxMarkerBits 则 trackOpBit 的计算会超过最大整形的位数，降级为 cleanupEffect
+      //在执行副作用函数之前，我们先删除副作用函数（分支切换可能会导致无意义的事件），想要清除那些遗留的副作用函数，有两种方法，1，给原先的副作用函数打上标识  2、如果层级太深，那么久降级为删除所有依赖。然后重新收集
       if (effectTrackDepth <= maxMarkerBits) {
         //标记所有的的dep为was
         initDepMarkers(this)
@@ -134,11 +141,18 @@ export class ReactiveEffect<T = any> {
       activeEffect = this.parent
       shouldTrack = lastShouldTrack
       this.parent = undefined
+
+      if (this.deferStop) {
+        this.stop()
+      }
     }
   }
 
   stop() {
-    if (this.active) {
+    // stopped while running itself - defer the cleanup
+    if (activeEffect === this) {
+      this.deferStop = true
+    } else if (this.active) {
       cleanupEffect(this)
       if (this.onStop) {
         this.onStop()
@@ -263,14 +277,10 @@ export function trackEffects(
     // 当前激活的 effect 收集 dep 集合作为依赖
     activeEffect!.deps.push(dep)
     if (__DEV__ && activeEffect!.onTrack) {
-      activeEffect!.onTrack(
-        Object.assign(
-          {
-            effect: activeEffect!
-          },
-          debuggerEventExtraInfo
-        )
-      )
+      activeEffect!.onTrack({
+        effect: activeEffect!,
+        ...debuggerEventExtraInfo!
+      })
     }
   }
 }
@@ -304,7 +314,7 @@ export function trigger(
     })
   } else {
     // schedule runs for SET | ADD | DELETE
-    //如果key值存在，那么应该是设置，新增，或者删除操作，我们只需要收集这个key值对应的dep的
+    //如果key值存在，那么应该是设置，新增，或者删除操作，我们先收集这个key值对应的dep
     if (key !== void 0) {
       deps.push(depsMap.get(key))
     }
@@ -322,7 +332,9 @@ export function trigger(
             deps.push(depsMap.get(MAP_KEY_ITERATE_KEY))
           }
         } else if (isIntegerKey(key)) {
-          // new index added to array -> length changes //此处跟前面的length会不会重复收集；哦数组不会，因为数组传递过来的的key是准备中的值，而不是length，上面 并不会收集
+          // new index added to array -> length changes //此处跟前面的length会不会重复收集?
+          // 哦数组不会，因为数组传递过来的的key是准备赋值的下标index，而不是length；
+          //这里是因为对数组的增值操作,导致了数组的长度变更,所以要把与长度相关的订阅者(副作用函数)收集起来.
           deps.push(depsMap.get('length'))
         }
         break
@@ -334,6 +346,8 @@ export function trigger(
           }
         }
         break
+      //在对象或者数组的遍历中，我们对ITERATE_KEY 的订阅，仅限于key值的变化
+      //因为map在遍历中，不仅关心key的变化，他还关心value值的变化
       case TriggerOpTypes.SET:
         if (isMap(target)) {
           deps.push(depsMap.get(ITERATE_KEY))
@@ -346,6 +360,7 @@ export function trigger(
     ? { target, type, key, newValue, oldValue, oldTarget }
     : undefined
   //一个人就必要麻烦别人了，就不封装了，直接执行函数即可。但是呢，明明可以放到多个里来处理，为啥不放呢？不理解
+  //我冤枉你了。。
   if (deps.length === 1) {
     if (deps[0])
     {
@@ -357,6 +372,7 @@ export function trigger(
     }
   } else {
     const effects: ReactiveEffect[] = []
+    //这个地方的deps是个数组结构，但是内部的值是各个key对应的set
     for (const dep of deps) {
       if (dep) {
         effects.push(...dep)
@@ -376,18 +392,34 @@ export function triggerEffects(
 ) {
   // spread into array for stabilization
   // 循环遍历 dep，去取每个依赖的副作用对象 ReactiveEffect
-  for (const effect of isArray(dep) ? dep : [...dep]) {
-    // 默认不允许递归，即当前 effect 副作用函数，如果递归触发当前 effect，会被忽略
-    if (effect !== activeEffect || effect.allowRecurse) {
-      if (__DEV__ && effect.onTrigger) {
-        effect.onTrigger(extend({ effect }, debuggerEventExtraInfo))
-      }
+  //dep可能传过来的是一个set集合<reactiveEffect>
+  const effects = isArray(dep) ? dep : [...dep]
+  for (const effect of effects) {
+    if (effect.computed) {
+      triggerEffect(effect, debuggerEventExtraInfo)
+    }
+  }
+  for (const effect of effects) {
+    if (!effect.computed) {
+      triggerEffect(effect, debuggerEventExtraInfo)
+    }
+  }
+}
+
+function triggerEffect(
+  effect: ReactiveEffect,
+  debuggerEventExtraInfo?: DebuggerEventExtraInfo
+) {
+  // 默认不允许递归，即当前 effect 副作用函数，如果递归触发当前 effect，会被忽略
+  if (effect !== activeEffect || effect.allowRecurse) {
+    if (__DEV__ && effect.onTrigger) {
+      effect.onTrigger(extend({ effect }, debuggerEventExtraInfo))
+    }
       // effect.scheduler可以先不管，ref 和 reactive 都没有
-      if (effect.scheduler) {
-        effect.scheduler()
-      } else {
+    if (effect.scheduler) {
+      effect.scheduler()
+    } else {
         effect.run()  // 执行 effect 的副作用函数
-      }
     }
   }
 }

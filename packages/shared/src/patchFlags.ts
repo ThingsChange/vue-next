@@ -65,13 +65,13 @@ export const enum PatchFlags {
   /**
    * Indicates an element with event listeners (which need to be attached
    * during hydration)
-   * 合并事件
+   * 绑定了监听事件
    */
   HYDRATE_EVENTS = 1 << 5,
 
   /**
    * Indicates a fragment whose children order doesn't change.
-   * children 顺序确定的 fragment
+   * children 顺序确定的 fragment（不会变换子节点顺序的fragment）
    */
   STABLE_FRAGMENT = 1 << 6,
 
@@ -133,7 +133,11 @@ export const enum PatchFlags {
    * when encountering non-compiler generated slots (i.e. manually written
    * render functions, which should always be fully diffed)
    * OR manually cloneVNodes
-   *  // 用来表示一个节点的diff应该结束
+   *  // 用来表示一个节点的diff不能走优化通道，只能走全量diff
+   *  // FULL_PROPS表示属性包含动态变化的属性key，即属性名本身就是动态的，e.g. :[foo]="bar"
+   *  // 由于属性名本身具有动态不确定性，无法保证新旧属性的唯一对应关系，因此需要挂载新属性同时卸载
+   *  // 无效的旧属性，和ref更新类似，因此只能对新旧属性做全量diff来保证属性更新的准确性，无法做到
+   *  // 属性靶向更新
    */
   BAIL = -2
 }

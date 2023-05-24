@@ -30,11 +30,17 @@ import {
   makeMap
 } from '@vue/shared'
 import { isRef } from './ref'
+import { warn } from './warning'
 
 const isNonTrackableKeys = /*#__PURE__*/ makeMap(`__proto__,__v_isRef,__isVue`)
 
 const builtInSymbols = new Set(
+  /*#__PURE__*/
   Object.getOwnPropertyNames(Symbol)
+    // ios10.x Object.getOwnPropertyNames(Symbol) can enumerate 'arguments' and 'caller'
+    // but accessing them on Symbol leads to TypeError because Symbol is a strict mode
+    // function
+    .filter(key => key !== 'arguments' && key !== 'caller')
     .map(key => (Symbol as any)[key])
     .filter(isSymbol)
 )
@@ -64,6 +70,10 @@ function createArrayInstrumentations() {
       // we run the method using the original args first (which may be reactive)
       const res = arr[key](...args)
       if (res === -1 || res === false) {
+        //这个地方为啥要在查找不到的时候再次尝试原始值呢？
+        //e.g. const obj = {} ; const temp = reactive(obj); const arr = reactive([obj]);console.log(arr.includes(temp)),
+        // 我们期待得到的是true对吧，但是在此行代码之前，实际执行效果却是false
+        //因为arr取出每一项去和obj比较，arr此时是[obj], 而我们传入的参数temp确是obj的代理对象，肯定匹配不到，所以我们要对结果进行修正。
         // if that didn't work, run it again using raw values.
         return arr[key](...args.map(toRaw))
       } else {
@@ -73,15 +83,28 @@ function createArrayInstrumentations() {
   })
   // instrument length-altering mutation methods to avoid length being tracked
   // which leads to infinite loops in some cases (#2137)
+  //这些方法为什么要函数劫持呢？因为这些方法会隐式修改数组的长度，属于数组的栈方法。
   ;(['push', 'pop', 'shift', 'unshift', 'splice'] as const).forEach(key => {
     instrumentations[key] = function (this: unknown[], ...args: unknown[]) {
       /*
       *  此处为啥先暂停呢？
-          比如push 时，a=[],a.push(1);
+      * 因为push操作会间接的读取length属性，所以我们要屏蔽对length属性的读取，从而避免它
+      * 与副作用函数之间建立联系，
+      * push操作本意是修改操作，而不是读取操作，所以避免建立响应联系并不会产生其他的副作用。
+        其实push的内部逻辑就是
+        * 1、读取数组长度 len
+        * 2、读取参数长度为argCount
+        * 3、对于参数遍历执行(赋值操作，并len++)
+        * 4、更新数组length为len
+        * 5、返回len
+        * 所以我们在真正执行这些方法之前，先暂停追踪，避免对length属性跟副作用函数之间建立联系
+        * 在方法执行之后，我们在重置追踪标志位为上一个状态。
+*
+          比如a=[],执行push 时，a.push(1);
           取push这个属性的时候本身不需要track
          那push操作进来的新值，是怎么变成响应式的呢？
-        是执行了这个操作    a[0]=1;走了proxy的setter,出发了trigger
-        其实push的内部逻辑就是先给下标赋值，然后设置length，触发了两次set。不过还有个现象是，虽然push带来的length操作会触发两次set，
+        是执行了这个操作    a[0]=1;走了proxy的setter,触发了trigger
+        * 先给下标赋值，然后设置length，触发了两次set。不过还有个现象是，虽然push带来的length操作会触发两次set，
         但走到 length 逻辑时，获取老的 length 也已经是新的值了，所以由于value === oldValue，实际只会走到一次trigger
       * */
       pauseTracking()
@@ -102,6 +125,7 @@ function createGetter(isReadonly = false, shallow = false) {
     } else if (key === ReactiveFlags.IS_SHALLOW) {
       return shallow
     } else if (
+      //代理对象通过属性 ReactiveFlags.RAW  获取原始数据
       key === ReactiveFlags.RAW &&
       receiver ===
         (isReadonly
@@ -124,10 +148,11 @@ function createGetter(isReadonly = false, shallow = false) {
 
     const res = Reflect.get(target, key, receiver)
     //如果是Symbol 类型，那么就看是否是 ESM规范中带的那13个Symbol自有属性 ：是否是__proto__,__v_isRef,__isVue 这些不需要追踪的属性
+    //为了避免发生意外地错误，以及性能上的考虑，不应该在副作用函数与Symbol.iterator这类symbol值之间建立响应联系，所以在追踪前进行过滤。
     if (isSymbol(key) ? builtInSymbols.has(key) : isNonTrackableKeys(key)) {
       return res
     }
-
+    //如果是只读的响应式代理，那么就没必要与副作用函数做关联。
     if (!isReadonly) {
       track(target, TrackOpTypes.GET, key)
     }
@@ -137,15 +162,17 @@ function createGetter(isReadonly = false, shallow = false) {
     }
 
     if (isRef(res)) {
-      // ref unwrapping - does not apply for Array + integer key.
-      const shouldUnwrap = !targetIsArray || !isIntegerKey(key)
-      return shouldUnwrap ? res.value : res
+      // ref unwrapping - skip unwrap for Array + integer key.
+      //不是数组就自动展开ref isIntegerKey是判断是否是数组的String下标，因为在追踪的时候，追踪的是字符串类型的。
+      //此处以前的写法很反人类
+      return targetIsArray && isIntegerKey(key) ? res : res.value
     }
 
     if (isObject(res)) {
       // Convert returned value into a proxy as well. we do the isObject check
       // here to avoid invalid value warning. Also need to lazy access readonly
       // and reactive here to avoid circular dependency.
+      //reactive的深度readonly或者reactive，在你读取的时候根据设置，对返回值进行包装并返回
       return isReadonly ? readonly(res) : reactive(res)
     }
 
@@ -167,12 +194,11 @@ function createSetter(shallow = false) {
     if (isReadonly(oldValue) && isRef(oldValue) && !isRef(value)) {
       return false
     }
-    //非浅层   且  新值是 非只读的响应式   即使深层次监听
-    if (!shallow && !isReadonly(value)) {
-      //如果新值不是浅层,那么先得到各自真实的value值
-      if (!isShallow(value)) {
-        value = toRaw(value)
+    if (!shallow) {
+      // 如果value是一个响应式数据，并且在深层监听模式下，那么就先求出value的真实值，避免数据污染
+      if (!isShallow(value) && !isReadonly(value)) {
         oldValue = toRaw(oldValue)
+        value = toRaw(value)
       }
       //对象不是数组 ，并且旧值是Ref儿新值不是Ref，让新值赋值给ref.value，ref决定trigger
       if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
@@ -194,7 +220,8 @@ function createSetter(shallow = false) {
     if (target === toRaw(receiver)) {
       if (!hadKey) {
         trigger(target, TriggerOpTypes.ADD, key, value)
-        //数组的push操作并不会触发两次trigger的原因在此，先下标赋值，然后leng设置的时候，此时数组的length 已经改变成新的程度，故相等
+        //数组的push操作并不会触发两次trigger的原因在此，先下标赋值·，然后length设置的时候，
+        // 此时数组的length 已经改变成新的长度（数据修改之后的数组的长度），故相等，不会触发两次trigger
       } else if (hasChanged(value, oldValue)) {
         trigger(target, TriggerOpTypes.SET, key, value, oldValue)
       }
@@ -238,7 +265,7 @@ export const readonlyHandlers: ProxyHandler<object> = {
   get: readonlyGet,
   set(target, key) {
     if (__DEV__) {
-      console.warn(
+      warn(
         `Set operation on key "${String(key)}" failed: target is readonly.`,
         target
       )
@@ -247,7 +274,7 @@ export const readonlyHandlers: ProxyHandler<object> = {
   },
   deleteProperty(target, key) {
     if (__DEV__) {
-      console.warn(
+      warn(
         `Delete operation on key "${String(key)}" failed: target is readonly.`,
         target
       )

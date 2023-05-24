@@ -135,7 +135,8 @@ const enum BooleanFlags {
 
 // extract props which defined with default from prop options
 export type ExtractDefaultPropTypes<O> = O extends object
-  ? { [K in DefaultKeys<O>]: InferPropType<O[K]> }
+  ? // use `keyof Pick<O, DefaultKeys<O>>` instead of `DefaultKeys<O>` to support IDE features
+    { [K in keyof Pick<O, DefaultKeys<O>>]: InferPropType<O[K]> }
   : {}
 
 type NormalizedProp =
@@ -204,6 +205,14 @@ export function initProps(
   }
   instance.attrs = attrs
 }
+
+function isInHmrContext(instance: ComponentInternalInstance | null) {
+  while (instance) {
+    if (instance.type.__hmrId) return true
+    instance = instance.parent
+  }
+}
+
 // 更新组件属性源
 // 组件每次更新创建新的vnode都会创建新的vnode.props，需要将最新的属性更新到组件实例对应
 // 状态源仓库中，保证renderProxy能一直获取最新有效属性
@@ -226,11 +235,7 @@ export function updateProps(
     // always force full diff in dev
     // - #1942 if hmr is enabled with sfc component
     // - vite#872 non-sfc component used by sfc component
-    !(
-      __DEV__ &&
-      (instance.type.__hmrId ||
-        (instance.parent && instance.parent.type.__hmrId))
-    ) &&
+    !(__DEV__ && isInHmrContext(instance)) &&
     (optimized || patchFlag > 0) &&
     !(patchFlag & PatchFlags.FULL_PROPS)
   ) {
@@ -242,6 +247,10 @@ export function updateProps(
       const propsToUpdate = instance.vnode.dynamicProps!
       for (let i = 0; i < propsToUpdate.length; i++) {
         let key = propsToUpdate[i]
+        // skip if the prop key is a declared emit event listener
+        if (isEmitListener(instance.emitsOptions, key)) {
+          continue
+        }
         // PROPS flag guarantees rawProps to be non-null
         const value = rawProps![key]
         if (options) {
@@ -523,7 +532,9 @@ export function normalizePropsOptions(
   }
   //没有props选项，也没继承的，也没mixins的
   if (!raw && !hasExtends) {
-    cache.set(comp, EMPTY_ARR as any)
+    if (isObject(comp)) {
+      cache.set(comp, EMPTY_ARR as any)
+    }
     return EMPTY_ARR as any
   }
 
@@ -569,7 +580,9 @@ export function normalizePropsOptions(
   }
   //格式化好的props数据结构，以及需要转换数据的keys
   const res: NormalizedPropsOptions = [normalized, needCastKeys]
-  cache.set(comp, res)
+  if (isObject(comp)) {
+    cache.set(comp, res)
+  }
   return res
 }
 

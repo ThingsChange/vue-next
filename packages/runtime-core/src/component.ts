@@ -35,7 +35,8 @@ import {
   applyOptions,
   ComponentOptions,
   ComputedOptions,
-  MethodOptions
+  MethodOptions,
+  resolveMergedOptions
 } from './componentOptions'
 import {
   EmitsOptions,
@@ -106,6 +107,10 @@ export interface ComponentInternalOptions {
    * This one should be exposed so that devtools can make use of it
    */
   __file?: string
+  /**
+   * name inferred from filename
+   */
+  __name?: string
 }
 
 export interface FunctionalComponent<P = {}, E extends EmitsOptions = {}>
@@ -225,7 +230,7 @@ export interface ComponentInternalInstance {
   next: VNode | null
   /**
    * Root vnode of this component's own vdom tree
-   * 组件渲染的子树
+   * 组件渲染的子树，组件 模板里的真实DOM vNode
    */
   subTree: VNode
   /**
@@ -443,6 +448,15 @@ export interface ComponentInternalInstance {
    * @internal
    */
   [LifecycleHooks.SERVER_PREFETCH]: LifecycleHook<() => Promise<unknown>>
+
+  /**
+   * For caching bound $forceUpdate on public proxy access
+   */
+  f?: () => void
+  /**
+   * For caching bound $nextTick on public proxy access
+   */
+  n?: () => Promise<void>
 }
 
 const emptyAppContext = createAppContext()
@@ -492,7 +506,7 @@ export function createComponentInstance(
     //渲染缓存
     renderCache: [],
 
-    // local resovled assets
+    // local resolved assets
     components: null,
     directives: null,
 
@@ -653,6 +667,7 @@ function setupStatefulComponent(
     }
   }
   // 0. create render proxy property access cache
+  //? 这里设置一个读取方法代理，代表你的这个属性属于谁，data?setupState?props?下次就可以直接去哪儿读取了
   instance.accessCache = Object.create(null)
   // 1. create public instance / render proxy
   // also mark it raw so it's never observed
@@ -683,7 +698,6 @@ function setupStatefulComponent(
 
     if (isPromise(setupResult)) {
       setupResult.then(unsetCurrentInstance, unsetCurrentInstance)
-
       if (isSSR) {
         // return the promise so server-renderer can wait on it
         return setupResult
@@ -697,6 +711,15 @@ function setupStatefulComponent(
         // async setup returned Promise.
         // bail here and wait for re-entry.
         instance.asyncDep = setupResult
+        if (__DEV__ && !instance.suspense) {
+          const name = Component.name ?? 'Anonymous'
+          warn(
+            `Component <${name}>: setup function returned a promise, but no ` +
+              `<Suspense> boundary was found in the parent component tree. ` +
+              `A component with async setup() must be nested in a <Suspense> ` +
+              `in order to be rendered.`
+          )
+        }
       } else if (__DEV__) {
         warn(
           `setup() returned a Promise, but the version of Vue you are using ` +
@@ -707,6 +730,8 @@ function setupStatefulComponent(
       handleSetupResult(instance, setupResult, isSSR)
     }
   } else {
+    // 如果不存在setup函数就直接进行下面optionApi的挂载，
+    // 不包括props的执行，在Vue3中，props最先执行，之后是setup，最后是其他optionAPI
     finishComponentSetup(instance, isSSR)
   }
 }
@@ -803,7 +828,8 @@ export function finishComponentSetup(
         (__COMPAT__ &&
           instance.vnode.props &&
           instance.vnode.props['inline-template']) ||
-        Component.template
+        Component.template ||
+        resolveMergedOptions(instance).template
       if (template) {
         if (__DEV__) {
           startMeasure(instance, `compile`)
@@ -825,6 +851,7 @@ export function finishComponentSetup(
           // pass runtime compat config into the compiler
           finalCompilerOptions.compatConfig = Object.create(globalCompatConfig)
           if (Component.compatConfig) {
+            // @ts-expect-error types are not compatible
             extend(finalCompilerOptions.compatConfig, Component.compatConfig)
           }
         }
@@ -861,14 +888,14 @@ export function finishComponentSetup(
     if (!compile && Component.template) {
       warn(
         `Component provided template option but ` +
-          `runtime compilation is not supported in this build of Vue.` +
-          (__ESM_BUNDLER__
-            ? ` Configure your bundler to alias "vue" to "vue/dist/vue.esm-bundler.js".`
-            : __ESM_BROWSER__
+        `runtime compilation is not supported in this build of Vue.` +
+        (__ESM_BUNDLER__
+          ? ` Configure your bundler to alias "vue" to "vue/dist/vue.esm-bundler.js".`
+          : __ESM_BROWSER__
             ? ` Use "vue.esm-browser.js" instead.`
             : __GLOBAL__
-            ? ` Use "vue.global.js" instead.`
-            : ``) /* should not happen */
+              ? ` Use "vue.global.js" instead.`
+              : ``) /* should not happen */
       )
     } else {
       warn(`Component is missing template or render function.`)
@@ -909,11 +936,13 @@ function createAttrsProxy(instance: ComponentInternalInstance): Data {
 * $attrs  响应式对象，文档不更新么？
 * slots  非响应式对象  =$slots
 * 触发事件 =$emit
-* 暴露公共property（函数）
+* expose 暴露公共property（函数）
 * */
 export function createSetupContext(
   instance: ComponentInternalInstance
 ): SetupContext {
+  //expose 函数，在setup返回的渲染函数时，因为返回渲染函数就意味着无法对外暴露其他的东西，
+  // 此时通过expose原函数暴露具体的值或者属性
   const expose: SetupContext['expose'] = exposed => {
     if (__DEV__ && instance.exposed) {
       warn(`expose() should be called only once per setup().`)
@@ -971,11 +1000,12 @@ const classify = (str: string): string =>
   str.replace(classifyRE, c => c.toUpperCase()).replace(/[-_]/g, '')
 
 export function getComponentName(
-  Component: ConcreteComponent
-): string | undefined {
+  Component: ConcreteComponent,
+  includeInferred = true
+): string | false | undefined {
   return isFunction(Component)
     ? Component.displayName || Component.name
-    : Component.name
+    : Component.name || (includeInferred && Component.__name)
 }
 
 /* istanbul ignore next */
