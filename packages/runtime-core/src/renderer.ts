@@ -2593,6 +2593,7 @@ export function traverseStaticChildren(n1: VNode, n2: VNode, shallow = false) {
 function getSequence(arr: number[]): number[] {
   //存放的是符合最长递增子序列的最后一次的索引
   //p[i]记录的是  用arr[i]   result[x]的时候，前一个满足最长递增子序列的下标   result[x-1]
+  // 数组每一项保存    满足arr[i]满足加入最长递增子序列result时，在arr中,index<i && Max(arr[index])<arr[i]的index
   const p = arr.slice()
   //存放的是符合最长递增子序列的索引
   const result = [0]
