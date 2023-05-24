@@ -1,5 +1,6 @@
 import { VNode, VNodeChild, isVNode } from './vnode'
 import {
+  isRef,
   pauseTracking,
   resetTracking,
   shallowReadonly,
@@ -26,7 +27,13 @@ import {
   initProps,
   normalizePropsOptions
 } from './componentProps'
-import { Slots, initSlots, InternalSlots } from './componentSlots'
+import {
+  initSlots,
+  InternalSlots,
+  Slots,
+  SlotsType,
+  UnwrapSlotsType
+} from './componentSlots'
 import { warn } from './warning'
 import { ErrorCodes, callWithErrorHandling, handleError } from './errorHandling'
 import { AppContext, createAppContext, AppConfig } from './apiCreateApp'
@@ -47,6 +54,7 @@ import {
 } from './componentEmits'
 import {
   EMPTY_OBJ,
+  isArray,
   isFunction,
   NOOP,
   isObject,
@@ -54,7 +62,9 @@ import {
   makeMap,
   isPromise,
   ShapeFlags,
-  extend
+  extend,
+  getGlobalThis,
+  IfAny
 } from '@vue/shared'
 import { SuspenseBoundary } from './components/Suspense'
 import { CompilerOptions } from '@vue/compiler-core'
@@ -68,6 +78,7 @@ import {
   validateCompatConfig
 } from './compat/compatConfig'
 import { SchedulerJob } from './scheduler'
+import { LifecycleHooks } from './enums'
 
 export type Data = Record<string, unknown>
 
@@ -113,12 +124,19 @@ export interface ComponentInternalOptions {
   __name?: string
 }
 
-export interface FunctionalComponent<P = {}, E extends EmitsOptions = {}>
-  extends ComponentInternalOptions {
+export interface FunctionalComponent<
+  P = {},
+  E extends EmitsOptions = {},
+  S extends Record<string, any> = any
+> extends ComponentInternalOptions {
   // use of any here is intentional so it can be a valid JSX Element constructor
-  (props: P, ctx: Omit<SetupContext<E>, 'expose'>): any
+  (
+    props: P,
+    ctx: Omit<SetupContext<E, IfAny<S, {}, SlotsType<S>>>, 'expose'>
+  ): any
   props?: ComponentPropsOptions<P>
   emits?: E | (keyof E)[]
+  slots?: IfAny<S, Slots, SlotsType<S>>
   inheritAttrs?: boolean
   displayName?: string
   compatConfig?: CompatConfig
@@ -159,33 +177,22 @@ export type Component<
   | ConcreteComponent<Props, RawBindings, D, C, M>
   | ComponentPublicInstanceConstructor<Props>
 
-export { ComponentOptions }
+export type { ComponentOptions }
 
 type LifecycleHook<TFn = Function> = TFn[] | null
 
-export const enum LifecycleHooks {
-  BEFORE_CREATE = 'bc',
-  CREATED = 'c',
-  BEFORE_MOUNT = 'bm',
-  MOUNTED = 'm',
-  BEFORE_UPDATE = 'bu',
-  UPDATED = 'u',
-  BEFORE_UNMOUNT = 'bum',
-  UNMOUNTED = 'um',
-  DEACTIVATED = 'da',
-  ACTIVATED = 'a',
-  RENDER_TRIGGERED = 'rtg',
-  RENDER_TRACKED = 'rtc',
-  ERROR_CAPTURED = 'ec',
-  SERVER_PREFETCH = 'sp'
-}
-
-export interface SetupContext<E = EmitsOptions> {
-  attrs: Data
-  slots: Slots
-  emit: EmitFn<E>
-  expose: (exposed?: Record<string, any>) => void
-}
+// use `E extends any` to force evaluating type to fix #2362
+export type SetupContext<
+  E = EmitsOptions,
+  S extends SlotsType = {}
+> = E extends any
+  ? {
+      attrs: Data
+      slots: UnwrapSlotsType<S>
+      emit: EmitFn<E>
+      expose: (exposed?: Record<string, any>) => void
+    }
+  : never
 
 /**
  * @internal
@@ -306,10 +313,12 @@ export interface ComponentInternalInstance {
   inheritAttrs?: boolean
   /**
    * is custom element?
+   * @internal
    */
   isCE?: boolean
   /**
    * custom element specific HMR method
+   * @internal
    */
   ceReload?: (newStyles?: string[]) => void
 
@@ -343,6 +352,10 @@ export interface ComponentInternalInstance {
   slots: InternalSlots
   refs: Data
   emit: EmitFn
+
+  attrsProxy: Data | null
+  slotsProxy: Slots | null
+
   /**
    * used for keeping track of .once event handlers on components
    * @internal
@@ -451,12 +464,20 @@ export interface ComponentInternalInstance {
 
   /**
    * For caching bound $forceUpdate on public proxy access
+   * @internal
    */
   f?: () => void
   /**
    * For caching bound $nextTick on public proxy access
+   * @internal
    */
   n?: () => Promise<void>
+  /**
+   * `updateTeleportCssVars`
+   * For updating css vars on contained teleports
+   * @internal
+   */
+  ut?: (vars?: Record<string, string>) => void
 }
 
 const emptyAppContext = createAppContext()
@@ -538,6 +559,9 @@ export function createComponentInstance(
     //setup函数上下文数据
     setupContext: null,
 
+    attrsProxy: null,
+    slotsProxy: null,
+
     // suspense related
     //异步组件
     suspense,
@@ -589,14 +613,52 @@ export let currentInstance: ComponentInternalInstance | null = null
 export const getCurrentInstance: () => ComponentInternalInstance | null = () =>
   currentInstance || currentRenderingInstance
 
+type GlobalInstanceSetter = ((
+  instance: ComponentInternalInstance | null
+) => void) & { version?: string }
+
+let internalSetCurrentInstance: GlobalInstanceSetter
+let globalCurrentInstanceSetters: GlobalInstanceSetter[]
+let settersKey = '__VUE_INSTANCE_SETTERS__'
+
+/**
+ * The following makes getCurrentInstance() usage across multiple copies of Vue
+ * work. Some cases of how this can happen are summarized in #7590. In principle
+ * the duplication should be avoided, but in practice there are often cases
+ * where the user is unable to resolve on their own, especially in complicated
+ * SSR setups.
+ *
+ * Note this fix is technically incomplete, as we still rely on other singletons
+ * for effectScope and global reactive dependency maps. However, it does make
+ * some of the most common cases work. It also warns if the duplication is
+ * found during browser execution.
+ */
+if (__SSR__) {
+  if (!(globalCurrentInstanceSetters = getGlobalThis()[settersKey])) {
+    globalCurrentInstanceSetters = getGlobalThis()[settersKey] = []
+  }
+  globalCurrentInstanceSetters.push(i => (currentInstance = i))
+  internalSetCurrentInstance = instance => {
+    if (globalCurrentInstanceSetters.length > 1) {
+      globalCurrentInstanceSetters.forEach(s => s(instance))
+    } else {
+      globalCurrentInstanceSetters[0](instance)
+    }
+  }
+} else {
+  internalSetCurrentInstance = i => {
+    currentInstance = i
+  }
+}
+
 export const setCurrentInstance = (instance: ComponentInternalInstance) => {
-  currentInstance = instance
+  internalSetCurrentInstance(instance)
   instance.scope.on()
 }
 
 export const unsetCurrentInstance = () => {
   currentInstance && currentInstance.scope.off()
-  currentInstance = null
+  internalSetCurrentInstance(null)
 }
 
 const isBuiltInTag = /*#__PURE__*/ makeMap('slot,component')
@@ -876,9 +938,12 @@ export function finishComponentSetup(
   if (__FEATURE_OPTIONS_API__ && !(__COMPAT__ && skipOptions)) {
     setCurrentInstance(instance)
     pauseTracking()
-    applyOptions(instance)
-    resetTracking()
-    unsetCurrentInstance()
+    try {
+      applyOptions(instance)
+    } finally {
+      resetTracking()
+      unsetCurrentInstance()
+    }
   }
 
   // warn missing template/render
@@ -903,31 +968,49 @@ export function finishComponentSetup(
   }
 }
 
-function createAttrsProxy(instance: ComponentInternalInstance): Data {
-  return new Proxy(
-    instance.attrs,
-    __DEV__
-      ? {
-          get(target, key: string) {
-            markAttrsAccessed()
-            track(instance, TrackOpTypes.GET, '$attrs')
-            return target[key]
-          },
-          set() {
-            warn(`setupContext.attrs is readonly.`)
-            return false
-          },
-          deleteProperty() {
-            warn(`setupContext.attrs is readonly.`)
-            return false
+function getAttrsProxy(instance: ComponentInternalInstance): Data {
+  return (
+    instance.attrsProxy ||
+    (instance.attrsProxy = new Proxy(
+      instance.attrs,
+      __DEV__
+        ? {
+            get(target, key: string) {
+              markAttrsAccessed()
+              track(instance, TrackOpTypes.GET, '$attrs')
+              return target[key]
+            },
+            set() {
+              warn(`setupContext.attrs is readonly.`)
+              return false
+            },
+            deleteProperty() {
+              warn(`setupContext.attrs is readonly.`)
+              return false
+            }
           }
-        }
-      : {
-          get(target, key: string) {
-            track(instance, TrackOpTypes.GET, '$attrs')
-            return target[key]
+        : {
+            get(target, key: string) {
+              track(instance, TrackOpTypes.GET, '$attrs')
+              return target[key]
+            }
           }
-        }
+    ))
+  )
+}
+
+/**
+ * Dev-only
+ */
+function getSlotsProxy(instance: ComponentInternalInstance): Slots {
+  return (
+    instance.slotsProxy ||
+    (instance.slotsProxy = new Proxy(instance.slots, {
+      get(target, key: string) {
+        track(instance, TrackOpTypes.GET, '$slots')
+        return target[key]
+      }
+    }))
   )
 }
 
@@ -944,22 +1027,38 @@ export function createSetupContext(
   //expose 函数，在setup返回的渲染函数时，因为返回渲染函数就意味着无法对外暴露其他的东西，
   // 此时通过expose原函数暴露具体的值或者属性
   const expose: SetupContext['expose'] = exposed => {
-    if (__DEV__ && instance.exposed) {
-      warn(`expose() should be called only once per setup().`)
+    if (__DEV__) {
+      if (instance.exposed) {
+        warn(`expose() should be called only once per setup().`)
+      }
+      if (exposed != null) {
+        let exposedType: string = typeof exposed
+        if (exposedType === 'object') {
+          if (isArray(exposed)) {
+            exposedType = 'array'
+          } else if (isRef(exposed)) {
+            exposedType = 'ref'
+          }
+        }
+        if (exposedType !== 'object') {
+          warn(
+            `expose() should be passed a plain object, received ${exposedType}.`
+          )
+        }
+      }
     }
     instance.exposed = exposed || {}
   }
 
-  let attrs: Data
   if (__DEV__) {
     // We use getters in dev in case libs like test-utils overwrite instance
     // properties (overwrites should not be done in prod)
     return Object.freeze({
       get attrs() {
-        return attrs || (attrs = createAttrsProxy(instance))
+        return getAttrsProxy(instance)
       },
       get slots() {
-        return shallowReadonly(instance.slots)
+        return getSlotsProxy(instance)
       },
       get emit() {
         return (event: string, ...args: any[]) => instance.emit(event, ...args)
@@ -969,7 +1068,7 @@ export function createSetupContext(
   } else {
     return {
       get attrs() {
-        return attrs || (attrs = createAttrsProxy(instance))
+        return getAttrsProxy(instance)
       },
       slots: instance.slots,
       emit: instance.emit,
@@ -989,6 +1088,9 @@ export function getExposeProxy(instance: ComponentInternalInstance) {
           } else if (key in publicPropertiesMap) {
             return publicPropertiesMap[key](instance)
           }
+        },
+        has(target, key: string) {
+          return key in target || key in publicPropertiesMap
         }
       }))
     )
