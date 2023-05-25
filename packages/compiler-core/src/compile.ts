@@ -67,6 +67,7 @@ export function baseCompile(
 ): CodegenResult {
   const onError = options.onError || defaultOnError
   const isModuleMode = options.mode === 'module'
+  //* 您可能希望有目的地从覆盖率跟踪中排除代码库的某些部分  //忽略下一个if语句
   /* istanbul ignore if */
   if (__BROWSER__) {
     if (options.prefixIdentifiers === true) {

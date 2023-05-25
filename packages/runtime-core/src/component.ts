@@ -480,7 +480,7 @@ export function createComponentInstance(
   const instance: ComponentInternalInstance = {
     uid: uid++,
     vnode,
-    //组件类型，options对象或者函数
+    //组件类型，options对象或者函数 如果是组件，则组件对象，渲染器就可以根据该属性的类型来判断
     type,
     parent,
     //app上下文
@@ -488,7 +488,7 @@ export function createComponentInstance(
     root: null!, // to be immediately set
     //要更新到的vNode
     next: null,
-    //存储组件的渲染函数返回的虚拟DOM，即组件子树
+    //存储组件的渲染函数返回的虚拟DOM，即组件子树，
     subTree: null!, // will be set synchronously right after creation
     //副作用对象
     effect: null!,

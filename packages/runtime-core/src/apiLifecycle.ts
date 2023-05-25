@@ -13,7 +13,7 @@ import { toHandlerKey } from '@vue/shared'
 import { DebuggerEvent, pauseTracking, resetTracking } from '@vue/reactivity'
 
 export { onActivated, onDeactivated } from './components/KeepAlive'
-
+// ?注册声明周期
 export function injectHook(
   type: LifecycleHooks,
   hook: Function & { __weh?: Function },
