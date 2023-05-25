@@ -210,13 +210,14 @@ export const transformElement: NodeTransform = (node, context) => {
       if (__DEV__) {
         if (patchFlag < 0) {
           // special flags (negative and mutually exclusive)
-          vnodePatchFlag = patchFlag + ` /* ${PatchFlagNames[patchFlag]} */`
+          vnodePatchFlag =
+            patchFlag + ` /* ${PatchFlagNames[patchFlag as PatchFlags]} */`
         } else {
           // bitwise flags
           const flagNames = Object.keys(PatchFlagNames)
             .map(Number)
             .filter(n => n > 0 && patchFlag & n)
-            .map(n => PatchFlagNames[n])
+            .map(n => PatchFlagNames[n as PatchFlags])
             .join(`, `)
           vnodePatchFlag = patchFlag + ` /* ${flagNames} */`
         }
@@ -284,9 +285,14 @@ export function resolveComponentType(
     }
   }
 
-  // 1.5 v-is (TODO: Deprecate)
+  // 1.5 v-is (TODO: remove in 3.4)
   const isDir = !isExplicitDynamic && findDir(node, 'is')
   if (isDir && isDir.exp) {
+    if (__DEV__) {
+      context.onWarn(
+        createCompilerError(ErrorCodes.DEPRECATION_V_IS, isDir.loc)
+      )
+    }
     return createCallExpression(context.helper(RESOLVE_DYNAMIC_COMPONENT), [
       isDir.exp
     ])
@@ -360,7 +366,8 @@ function resolveSetupReference(name: string, context: TransformContext) {
 
   const fromConst =
     checkType(BindingTypes.SETUP_CONST) ||
-    checkType(BindingTypes.SETUP_REACTIVE_CONST)
+    checkType(BindingTypes.SETUP_REACTIVE_CONST) ||
+    checkType(BindingTypes.LITERAL_CONST)
   if (fromConst) {
     return context.inline
       ? // in inline mode, const setup bindings (e.g. imports) can be used as-is
@@ -497,19 +504,21 @@ export function buildProps(
         // in inline mode there is no setupState object, so we can't use string
         // keys to set the ref. Instead, we need to transform it to pass the
         // actual ref instead.
-        if (
-          !__BROWSER__ &&
-          value &&
-          context.inline &&
-          context.bindingMetadata[value.content]
-        ) {
-          isStatic = false
-          properties.push(
-            createObjectProperty(
-              createSimpleExpression('ref_key', true),
-              createSimpleExpression(value.content, true, value.loc)
+        if (!__BROWSER__ && value && context.inline) {
+          const binding = context.bindingMetadata[value.content]
+          if (
+            binding === BindingTypes.SETUP_LET ||
+            binding === BindingTypes.SETUP_REF ||
+            binding === BindingTypes.SETUP_MAYBE_REF
+          ) {
+            isStatic = false
+            properties.push(
+              createObjectProperty(
+                createSimpleExpression('ref_key', true),
+                createSimpleExpression(value.content, true, value.loc)
+              )
             )
-          )
+          }
         }
       }
       // skip is on <component>, or is="vue:xxx"

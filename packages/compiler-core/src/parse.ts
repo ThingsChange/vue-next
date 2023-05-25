@@ -270,14 +270,19 @@ function parseChildren(
             const next = nodes[i + 1]
             // Remove if:
             // - the whitespace is the first or last node, or:
-            // - (condense mode) the whitespace is adjacent to a comment, or:
+            // - (condense mode) the whitespace is between twos comments, or:
+            // - (condense mode) the whitespace is between comment and element, or:
             // - (condense mode) the whitespace is between two elements AND contains newline
             if (
               !prev ||
               !next ||
               (shouldCondense &&
-                (prev.type === NodeTypes.COMMENT ||
-                  next.type === NodeTypes.COMMENT ||
+                ((prev.type === NodeTypes.COMMENT &&
+                  next.type === NodeTypes.COMMENT) ||
+                  (prev.type === NodeTypes.COMMENT &&
+                    next.type === NodeTypes.ELEMENT) ||
+                  (prev.type === NodeTypes.ELEMENT &&
+                    next.type === NodeTypes.COMMENT) ||
                   (prev.type === NodeTypes.ELEMENT &&
                     next.type === NodeTypes.ELEMENT &&
                     /[\r\n]/.test(node.content))))
@@ -691,7 +696,7 @@ function isComponent(
       }
     } else {
       // directive
-      // v-is (TODO Deprecate)
+      // v-is (TODO: remove in 3.4)
       if (p.name === 'is') {
         return true
       } else if (
@@ -821,7 +826,10 @@ function parseAttribute(
 
     if (match[2]) {
       const isSlot = dirName === 'slot'
-      const startOffset = name.lastIndexOf(match[2])
+      const startOffset = name.lastIndexOf(
+        match[2],
+        name.length - (match[3]?.length || 0)
+      )
       const loc = getSelection(
         context,
         getNewPosition(context, start, startOffset),
