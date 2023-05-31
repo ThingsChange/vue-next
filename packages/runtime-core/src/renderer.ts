@@ -1240,7 +1240,7 @@ function baseCreateRenderer(
     // mounting
     const compatMountInstance =
       __COMPAT__ && initialVNode.isCompatRoot && initialVNode.component
-    // ? 1、创建组件vnode对应的组件实例
+    // ? 1、创建组件vnode对应的组件实例，后续不管属性挂载 生命周期注册，都可以直接获取当前组件的实例
     const instance: ComponentInternalInstance =
       compatMountInstance ||
       (initialVNode.component = createComponentInstance(
@@ -1503,7 +1503,7 @@ function baseCreateRenderer(
         // OR parent calling processComponent (next: VNode)
         //?2、组件更新
         //?a、 组件内部响应式数据变化了，就会触发数据所属组件的更新流程
-        //?b 、父组件更新引发子代节点的diff也会触发子组件的processComponent
+        //?b 、父组件更新引发子代节点的diff也会触发子组件的processComponent，子组件被动更新
         let { next, bu, u, parent, vnode } = instance
         let originNext = next
         let vnodeHook: VNodeHook | null | undefined
@@ -1610,6 +1610,9 @@ function baseCreateRenderer(
 
     // create reactive effect for rendering
     // 创建渲染effect，并将其挂载到组件实例上作为更新执行器
+    //此处加入了scheduler, 因为更新函数其实渲染函数是同步执行的，无法对任务进行去重啊，优先级处理
+    //所以在创建effect的时候同时指定了scheduler，即trigger的时候要执行的实际函数，把渲染任务加入缓冲队列，接受vue任务调度器调配
+    //避免无用的重新渲染所导致的额外性能开销
     const effect = (instance.effect = new ReactiveEffect(
       componentUpdateFn,
       () => queueJob(update),
@@ -2030,7 +2033,7 @@ function baseCreateRenderer(
       // no corresponding old node.
       // used for determining longest stable subsequence
       /*
-      *  创建新旧节点index映射，和 newIndexToOldIndexMap<newIndex, oldIndex> 描述功能一样
+      *  创建新旧节点index映射，和 newIndexToOldIndexMap<newIndex, oldIndex> 描述功能一样,新子节点在旧的子节点数组中索引位置；
       * 0 表示新节点没有相对应的旧节点，为了将旧节点index = 0和表示没有对应
       * 节点的 0 进行区分，因此对应的旧节点index均 +1 的偏移值
       * 建立新旧index映射是为了后面计算最长稳定子序列，从而用最少的次数把发生
@@ -2041,7 +2044,13 @@ function baseCreateRenderer(
       * */
       const newIndexToOldIndexMap = new Array(toBePatched)
       for (i = 0; i < toBePatched; i++) newIndexToOldIndexMap[i] = 0
-
+      //lj 双层for循环来记录来填充 newIndexToOldIndexMap
+      /*
+      * 整体思路很简单，遍历旧子数组列表，从中去找是有可以用作新子节数组中复用的节点，（根据key值，没key值就挨个儿比对）
+      * 如果有，那就是newIndex 填充到newIndexToOldIndexMap，
+      * 如果没有，那就卸载当前旧子节点
+      * 如果比对过的数量大于待处理数量（新子数组长度），也是卸载剩余旧子节点
+      * */
       for (i = s1; i <= e1; i++) {
         const prevChild = c1[i]
         //  如果已经patch的数量大于新children中待处理的数量，那么剩下的旧节点都是多余的，卸载即可。

@@ -13,7 +13,7 @@ import { DebuggerEvent, pauseTracking, resetTracking } from '@vue/reactivity'
 import { LifecycleHooks } from './enums'
 
 export { onActivated, onDeactivated } from './components/KeepAlive'
-
+// ?注册声明周期
 export function injectHook(
   type: LifecycleHooks,
   hook: Function & { __weh?: Function },
