@@ -500,9 +500,8 @@ export function createComponentInstance(
 
   const instance: ComponentInternalInstance = {
     uid: uid++,
-    vnode,
-    //组件类型，options对象或者函数
-    type,
+    vnode,    //组件类型，options对象或者函数
+    type,//节点类型，‘MyComponent
     parent,
     //app上下文
     appContext,

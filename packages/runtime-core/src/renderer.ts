@@ -2541,7 +2541,7 @@ function baseCreateRenderer(
     //挂在后将vNnod缓存起来
     container._vnode = vnode
   }
-
+  // 渲染器内部的一些方法，供一些内部组件使用，一般作为参数传入到内建组件中使用，这样内建组件如果没有使用，就可以通过tree-shaking删除掉
   const internals: RendererInternals = {
     p: patch,
     um: unmount,
