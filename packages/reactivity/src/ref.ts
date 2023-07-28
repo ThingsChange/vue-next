@@ -139,6 +139,7 @@ class RefImpl<T> {
   private _value: T
   private _rawValue: T
   public dep?: Dep = undefined
+  //区分 你到底死ref(1)还是真正的reactive({value:1})
   public readonly __v_isRef = true
 
   constructor(value: T, public readonly __v_isShallow: boolean) {
