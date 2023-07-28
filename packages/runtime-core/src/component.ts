@@ -500,7 +500,8 @@ export function createComponentInstance(
 
   const instance: ComponentInternalInstance = {
     uid: uid++,
-    vnode,
+    vnode,    //组件类型，options对象或者函数
+    // type,//节点类型，‘MyComponent
     //组件类型，options对象或者函数 如果是组件，则组件对象，渲染器就可以根据该属性的类型来判断
     type,
     parent,

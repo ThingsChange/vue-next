@@ -192,7 +192,7 @@ export type NormalizedPropsOptions = [NormalizedProps, string[]] | []
 * prop传值   <HelloWorld  name ="QY" address ="昌平"  age="18" like-study="">
 *组件内定义：props:{ name:{ type:String,default:'dage'},address:{type:String},likeStudy:[Boolean,String]}
 * 得到的propOptions：[{ address: {0:false,1:true,type:string},name: {0:false,1:true,type:string,default:'dage'},likeStudy:{0:true,1:true,type:[Boolean,String]},:[''name','likeStudy']]
-* 1、遍历rawProps的值，例子中就是{name: "dafe", address: "昌平", age: "18", likeStudy: ""};
+* 1、遍历rawProps的值，例子中就是{name: "QY", address: "昌平", age: "18", likeStudy: ""};
 * 2、如果propsOptions中有rawProps对应的key，如果不需要转换，就直接赋值给props，如果需要转换值，则先暂存到rawCastValues中；
 * 如果propsOptions中没有rawProps对应的key，并且不是事件相关的属性，则将其存到attrs中。
 * 等得====》props ={address:''昌平}   attrs={age:18} rawCastValues={likeStudy:'',name:'QY'}
